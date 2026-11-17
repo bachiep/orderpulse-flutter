@@ -52,6 +52,34 @@ final class OrderBoardOrderUpserted extends OrderBoardEvent {
   List<Object?> get props => [order, isNewIncoming];
 }
 
+final class OrderBoardOrderCancelled extends OrderBoardEvent {
+  const OrderBoardOrderCancelled({
+    required this.orderId,
+    required this.reason,
+  });
+
+  final String orderId;
+  final String reason;
+
+  @override
+  List<Object?> get props => [orderId, reason];
+}
+
+final class OrderBoardRiderAssigned extends OrderBoardEvent {
+  const OrderBoardRiderAssigned({
+    required this.orderId,
+    required this.riderName,
+    required this.riderPlate,
+  });
+
+  final String orderId;
+  final String riderName;
+  final String riderPlate;
+
+  @override
+  List<Object?> get props => [orderId, riderName, riderPlate];
+}
+
 final class OrderBoardAlertDismissed extends OrderBoardEvent {
   const OrderBoardAlertDismissed();
 }
@@ -184,6 +212,8 @@ class OrderBoardBloc extends Bloc<OrderBoardEvent, OrderBoardState> {
     on<OrderBoardFilterChanged>(_onFilterChanged, transformer: restartable());
     on<OrderBoardQueryChanged>(_onQueryChanged, transformer: restartable());
     on<OrderBoardOrderUpserted>(_onOrderUpserted);
+    on<OrderBoardOrderCancelled>(_onOrderCancelled);
+    on<OrderBoardRiderAssigned>(_onRiderAssigned);
     on<OrderBoardAlertDismissed>(_onAlertDismissed);
   }
 
@@ -351,6 +381,40 @@ class OrderBoardBloc extends Bloc<OrderBoardEvent, OrderBoardState> {
         incomingAlertOrder: event.isNewIncoming ? order : null,
       ),
     );
+  }
+
+  void _onOrderCancelled(
+    OrderBoardOrderCancelled event,
+    Emitter<OrderBoardState> emit,
+  ) {
+    final current = state;
+    if (current is! OrderBoardLoaded) return;
+    final idx = current.orders.indexWhere((o) => o.id == event.orderId);
+    if (idx < 0) return;
+
+    final updatedOrder = current.orders[idx].copyWith(
+      status: OrderStatus.rejected,
+      rejectionReason: event.reason,
+      updatedAt: DateTime.now().toUtc(),
+    );
+    _onOrderUpserted(OrderBoardOrderUpserted(updatedOrder), emit);
+  }
+
+  void _onRiderAssigned(
+    OrderBoardRiderAssigned event,
+    Emitter<OrderBoardState> emit,
+  ) {
+    final current = state;
+    if (current is! OrderBoardLoaded) return;
+    final idx = current.orders.indexWhere((o) => o.id == event.orderId);
+    if (idx < 0) return;
+
+    final updatedOrder = current.orders[idx].copyWith(
+      riderName: event.riderName,
+      riderPlate: event.riderPlate,
+      updatedAt: DateTime.now().toUtc(),
+    );
+    _onOrderUpserted(OrderBoardOrderUpserted(updatedOrder), emit);
   }
 
   void _onAlertDismissed(

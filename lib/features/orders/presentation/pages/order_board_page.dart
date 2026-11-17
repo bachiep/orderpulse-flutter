@@ -13,6 +13,9 @@ import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_filter_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_search_bloc.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/widgets/order_card.dart';
+import 'package:orderpulse_flutter/features/realtime/domain/order_realtime_event.dart';
+import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
+import 'package:orderpulse_flutter/features/realtime/presentation/widgets/connection_status_bar.dart';
 
 /// Dependency-injected entry point for the merchant order dispatch board.
 class OrderBoardPage extends StatefulWidget {
@@ -30,6 +33,10 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
     if (boardBloc.state is OrderBoardLoading) {
       boardBloc.add(const OrderBoardLoadRequested());
     }
+    final streamBloc = sl<OrderStreamBloc>();
+    if (streamBloc.state is OrderStreamOffline) {
+      streamBloc.add(const OrderStreamConnectRequested());
+    }
   }
 
   @override
@@ -39,6 +46,7 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
         BlocProvider.value(value: sl<OrderBoardBloc>()),
         BlocProvider.value(value: sl<OrderFilterCubit>()),
         BlocProvider.value(value: sl<OrderSearchBloc>()),
+        BlocProvider.value(value: sl<OrderStreamBloc>()),
       ],
       child: OrderBoardView(
         clock: sl<AppClock>(),
@@ -57,10 +65,12 @@ class OrderBoardView extends StatefulWidget {
     super.key,
     required this.clock,
     this.onOrderTap,
+    this.extraActions = const [],
   });
 
   final AppClock clock;
   final void Function(Order order)? onOrderTap;
+  final List<Widget> extraActions;
 
   @override
   State<OrderBoardView> createState() => _OrderBoardViewState();
@@ -92,6 +102,36 @@ class _OrderBoardViewState extends State<OrderBoardView> {
     }
   }
 
+  void _handleStreamEvent(
+    BuildContext context,
+    OrderStreamState streamState,
+  ) {
+    if (streamState is! OrderStreamLive || streamState.latestEvent == null) {
+      return;
+    }
+    final boardBloc = context.read<OrderBoardBloc>();
+    switch (streamState.latestEvent!) {
+      case OrderCreatedEvent(:final order):
+        boardBloc.add(OrderBoardOrderUpserted(order, isNewIncoming: true));
+      case OrderCancelledEvent(:final orderId, :final reason):
+        boardBloc.add(
+          OrderBoardOrderCancelled(orderId: orderId, reason: reason),
+        );
+      case RiderAssignedEvent(
+          :final orderId,
+          :final riderName,
+          :final riderPlate,
+        ):
+        boardBloc.add(
+          OrderBoardRiderAssigned(
+            orderId: orderId,
+            riderName: riderName,
+            riderPlate: riderPlate,
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
@@ -114,6 +154,12 @@ class _OrderBoardViewState extends State<OrderBoardView> {
                 .add(OrderBoardQueryChanged(searchState.query));
           },
         ),
+        BlocListener<OrderStreamBloc, OrderStreamState>(
+          listenWhen: (prev, curr) =>
+              curr is OrderStreamLive && curr.latestEvent != null &&
+              prev != curr,
+          listener: _handleStreamEvent,
+        ),
       ],
       child: Scaffold(
         appBar: AppBar(
@@ -122,6 +168,7 @@ class _OrderBoardViewState extends State<OrderBoardView> {
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            ...widget.extraActions,
             IconButton(
               tooltip: 'Toggle theme',
               onPressed: () => context.read<ThemeCubit>().toggle(),
@@ -138,6 +185,42 @@ class _OrderBoardViewState extends State<OrderBoardView> {
         body: SafeArea(
           child: Column(
             children: [
+              BlocBuilder<OrderStreamBloc, OrderStreamState>(
+                builder: (context, streamState) {
+                  return ConnectionStatusBar(
+                    state: streamState,
+                    onReconnectTap: () => context
+                        .read<OrderStreamBloc>()
+                        .add(const OrderStreamConnectRequested()),
+                  );
+                },
+              ),
+              BlocBuilder<OrderBoardBloc, OrderBoardState>(
+                buildWhen: (prev, curr) =>
+                    (prev is OrderBoardLoaded ? prev.incomingAlertOrder : null) !=
+                    (curr is OrderBoardLoaded ? curr.incomingAlertOrder : null),
+                builder: (context, boardState) {
+                  if (boardState is! OrderBoardLoaded ||
+                      boardState.incomingAlertOrder == null) {
+                    return const SizedBox.shrink();
+                  }
+                  final alertOrder = boardState.incomingAlertOrder!;
+                  return _IncomingOrderBanner(
+                    order: alertOrder,
+                    onView: widget.onOrderTap == null
+                        ? null
+                        : () {
+                            context
+                                .read<OrderBoardBloc>()
+                                .add(const OrderBoardAlertDismissed());
+                            widget.onOrderTap!(alertOrder);
+                          },
+                    onDismiss: () => context
+                        .read<OrderBoardBloc>()
+                        .add(const OrderBoardAlertDismissed()),
+                  );
+                },
+              ),
               _ShiftSummaryStrip(
                 stats: context.select<OrderBoardBloc, MerchantShiftStats?>(
                   (bloc) => bloc.state.stats,
@@ -282,6 +365,72 @@ class _OrderBoardViewState extends State<OrderBoardView> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _IncomingOrderBanner extends StatelessWidget {
+  const _IncomingOrderBanner({
+    required this.order,
+    required this.onDismiss,
+    this.onView,
+  });
+
+  final Order order;
+  final VoidCallback? onView;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.notifications_active_rounded, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'New Order ${order.id}',
+                  style: textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                Text(
+                  '${order.customerName} • ${formatVnd(order.totalAmountVnd)}',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (onView != null)
+            TextButton(
+              onPressed: onView,
+              child: const Text('View'),
+            ),
+          IconButton(
+            tooltip: 'Dismiss alert',
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close_rounded, size: 18),
+          ),
+        ],
       ),
     );
   }
