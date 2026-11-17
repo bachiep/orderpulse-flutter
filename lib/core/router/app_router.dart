@@ -29,7 +29,8 @@ GoRouter createAppRouter({
   required AuthSessionGate authGate,
   required WidgetBuilder loginBuilder,
   required WidgetBuilder ordersBuilder,
-  Widget Function(BuildContext context, String orderId)? orderDetailBuilder,
+  Widget Function(BuildContext context, String orderId, Object? extra)?
+      orderDetailBuilder,
 }) {
   return GoRouter(
     initialLocation: AppRoutes.login,
@@ -61,6 +62,7 @@ GoRouter createAppRouter({
               builder: (context, state) => orderDetailBuilder(
                 context,
                 state.pathParameters['id'] ?? '',
+                state.extra,
               ),
             ),
         ],

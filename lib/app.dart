@@ -7,6 +7,8 @@ import 'package:orderpulse_flutter/core/theme/app_theme.dart';
 import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/pages/login_page.dart';
+import 'package:orderpulse_flutter/features/dispatch/presentation/pages/order_detail_page.dart';
+import 'package:orderpulse_flutter/features/orders/domain/order.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/pages/order_board_page.dart';
 
 /// Root OrderPulse application widget wiring Material 3 themes, BLoCs, and routing.
@@ -27,6 +29,10 @@ class _OrderPulseAppState extends State<OrderPulseApp> {
       authGate: sl<AuthSessionGate>(),
       loginBuilder: (_) => const LoginPage(),
       ordersBuilder: (_) => const OrderBoardPage(),
+      orderDetailBuilder: (_, orderId, extra) => OrderDetailPage(
+        orderId: orderId,
+        initialOrder: extra is Order ? extra : null,
+      ),
     );
   }
 
