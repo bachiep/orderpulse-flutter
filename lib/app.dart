@@ -5,6 +5,7 @@ import 'package:orderpulse_flutter/core/di/injection.dart';
 import 'package:orderpulse_flutter/core/router/app_router.dart';
 import 'package:orderpulse_flutter/core/theme/app_theme.dart';
 import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
+import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/pages/login_page.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/pages/order_board_page.dart';
 
@@ -37,8 +38,11 @@ class _OrderPulseAppState extends State<OrderPulseApp> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
-      value: sl<ThemeCubit>(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider.value(value: sl<ThemeCubit>()),
+        BlocProvider.value(value: sl<AuthBloc>()),
+      ],
       child: BlocBuilder<ThemeCubit, ThemeMode>(
         builder: (context, themeMode) {
           return MaterialApp.router(

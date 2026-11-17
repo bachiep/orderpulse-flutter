@@ -5,17 +5,12 @@ import 'package:orderpulse_flutter/core/di/injection.dart';
 import 'package:orderpulse_flutter/core/widgets/state_views.dart';
 
 void main() {
-  setUp(() async {
-    await configureDependencies();
-  });
-
-  tearDown(() async {
-    await sl.reset(dispose: true);
-  });
-
-  testWidgets('App boots on LoginPage and AuthGuard redirects on login/logout', (
+  testWidgets('App boots on LoginPage and AuthGuard redirects on demo login/logout', (
     tester,
   ) async {
+    await configureDependencies(demoLatency: Duration.zero);
+    addTearDown(() => sl.reset(dispose: true));
+
     await tester.pumpWidget(const OrderPulseApp());
     await tester.pumpAndSettle();
 
@@ -23,11 +18,13 @@ void main() {
     expect(find.text('Try Demo Merchant'), findsOneWidget);
 
     await tester.tap(find.text('Try Demo Merchant'));
+    await tester.pump();
     await tester.pumpAndSettle();
 
-    expect(find.text('OrderPulse Dispatch'), findsOneWidget);
+    expect(find.text('OrderPulse Kitchen - Demo'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Sign out'));
+    await tester.pump();
     await tester.pumpAndSettle();
 
     expect(find.text('OrderPulse Merchant'), findsOneWidget);
