@@ -16,6 +16,8 @@ import 'package:orderpulse_flutter/features/orders/presentation/widgets/order_ca
 import 'package:orderpulse_flutter/features/realtime/domain/order_realtime_event.dart';
 import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 import 'package:orderpulse_flutter/features/realtime/presentation/widgets/connection_status_bar.dart';
+import 'package:orderpulse_flutter/features/simulator/presentation/bloc/simulator_cubit.dart';
+import 'package:orderpulse_flutter/features/simulator/presentation/widgets/simulator_sheet.dart';
 
 /// Dependency-injected entry point for the merchant order dispatch board.
 class OrderBoardPage extends StatefulWidget {
@@ -41,12 +43,16 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final simulatorCubit = sl<SimulatorCubit>();
+    final streamBloc = sl<OrderStreamBloc>();
+
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: sl<OrderBoardBloc>()),
         BlocProvider.value(value: sl<OrderFilterCubit>()),
         BlocProvider.value(value: sl<OrderSearchBloc>()),
-        BlocProvider.value(value: sl<OrderStreamBloc>()),
+        BlocProvider.value(value: streamBloc),
+        BlocProvider.value(value: simulatorCubit),
       ],
       child: OrderBoardView(
         clock: sl<AppClock>(),
@@ -54,6 +60,18 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
           AppRoutes.orderDetail(order.id),
           extra: order,
         ),
+        extraActions: [
+          if (simulatorCubit.state.isSupported)
+            IconButton(
+              tooltip: 'Open Simulator',
+              onPressed: () => SimulatorSheet.show(
+                context,
+                simulatorCubit: simulatorCubit,
+                orderStreamBloc: streamBloc,
+              ),
+              icon: const Icon(Icons.science_outlined),
+            ),
+        ],
       ),
     );
   }

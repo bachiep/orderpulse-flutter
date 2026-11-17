@@ -22,6 +22,10 @@ import 'package:orderpulse_flutter/features/realtime/data/ws_order_realtime_sour
 import 'package:orderpulse_flutter/features/realtime/domain/order_realtime_source.dart';
 import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 import 'package:orderpulse_flutter/features/simulator/data/demo_backend_engine.dart';
+import 'package:orderpulse_flutter/features/simulator/data/demo_network_simulator.dart';
+import 'package:orderpulse_flutter/features/simulator/data/live_network_simulator.dart';
+import 'package:orderpulse_flutter/features/simulator/domain/network_simulator_service.dart';
+import 'package:orderpulse_flutter/features/simulator/presentation/bloc/simulator_cubit.dart';
 
 /// Global service locator for OrderPulse dependencies.
 final GetIt sl = GetIt.instance;
@@ -61,18 +65,30 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
             simulatedLatency: demoLatency ?? const Duration(milliseconds: 90),
           );
           final tokenStorage = InMemoryTokenStorage();
+          final traceBuffer = AuthTraceBuffer();
           final dioClient = DioClient(
             config: config,
             tokenStorage: tokenStorage,
             adapter: DemoBackendHttpAdapter(engine),
             onSessionExpired: _notifySessionExpired,
+            onTrace: traceBuffer.add,
           );
+          final realtimeSource = DemoOrderRealtimeDataSource();
 
           getIt.registerSingleton<DemoBackendEngine>(engine);
+          getIt.registerSingleton<AuthTraceBuffer>(traceBuffer);
           getIt.registerSingleton<TokenStorage>(tokenStorage);
           getIt.registerSingleton<DioClient>(dioClient);
-          getIt.registerSingleton<OrderRealtimeDataSource>(
-            DemoOrderRealtimeDataSource(),
+          getIt.registerSingleton<Dio>(dioClient.dio);
+          getIt.registerSingleton<DemoOrderRealtimeDataSource>(realtimeSource);
+          getIt.registerSingleton<OrderRealtimeDataSource>(realtimeSource);
+          getIt.registerSingleton<NetworkSimulatorService>(
+            DemoNetworkSimulator(
+              engine: engine,
+              realtimeSource: realtimeSource,
+              dio: dioClient.dio,
+              traceBuffer: traceBuffer,
+            ),
           );
         } else {
           final tokenStorage = SecureTokenStorage();
@@ -84,15 +100,18 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
 
           getIt.registerSingleton<TokenStorage>(tokenStorage);
           getIt.registerSingleton<DioClient>(dioClient);
+          getIt.registerSingleton<Dio>(dioClient.dio);
           getIt.registerSingleton<OrderRealtimeDataSource>(
             WsOrderRealtimeDataSource(
               config: config,
               tokenStorage: tokenStorage,
             ),
           );
+          getIt.registerSingleton<NetworkSimulatorService>(
+            const UnavailableNetworkSimulator(),
+          );
         }
 
-        getIt.registerSingleton<Dio>(getIt<DioClient>().dio);
         getIt.registerSingleton<AuthRepository>(
           AuthRepositoryImpl(
             dio: getIt<Dio>(),
@@ -125,6 +144,10 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
             clock: _clock,
           ),
           dispose: (bloc) => unawaited(bloc.close()),
+        );
+        getIt.registerSingleton<SimulatorCubit>(
+          SimulatorCubit(service: getIt<NetworkSimulatorService>()),
+          dispose: (cubit) => unawaited(cubit.close()),
         );
       },
     );
