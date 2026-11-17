@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:orderpulse_flutter/core/di/injection.dart';
-import 'package:orderpulse_flutter/core/router/app_router.dart';
 import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
 import 'package:orderpulse_flutter/core/widgets/state_views.dart';
+import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
 
 /// Merchant order board shell page.
 class OrderBoardPage extends StatelessWidget {
@@ -11,11 +10,15 @@ class OrderBoardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final authGate = sl<AuthSessionGate>();
+    final authState = context.watch<AuthBloc>().state;
+    final title = switch (authState) {
+      AuthAuthenticated(:final merchant) => merchant.merchantName,
+      _ => 'OrderPulse Dispatch',
+    };
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OrderPulse Dispatch'),
+        title: Text(title),
         actions: [
           IconButton(
             tooltip: 'Toggle theme',
@@ -24,7 +27,9 @@ class OrderBoardPage extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Sign out',
-            onPressed: () => authGate.setAuthenticated(false),
+            onPressed: () => context.read<AuthBloc>().add(
+                  const AuthLogoutRequested(),
+                ),
             icon: const Icon(Icons.logout_rounded),
           ),
         ],
