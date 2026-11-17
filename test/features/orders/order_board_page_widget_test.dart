@@ -14,15 +14,21 @@ import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_filter_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_search_bloc.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/pages/order_board_page.dart';
+import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
 class _MockOrderBoardBloc extends MockBloc<OrderBoardEvent, OrderBoardState>
     implements OrderBoardBloc {}
 
+class _MockOrderStreamBloc
+    extends MockBloc<OrderStreamEvent, OrderStreamState>
+    implements OrderStreamBloc {}
+
 void main() {
   late _MockAuthBloc authBloc;
   late _MockOrderBoardBloc boardBloc;
+  late _MockOrderStreamBloc streamBloc;
   late OrderFilterCubit filterCubit;
   late OrderSearchBloc searchBloc;
   late ThemeCubit themeCubit;
@@ -58,11 +64,13 @@ void main() {
   setUp(() {
     authBloc = _MockAuthBloc();
     boardBloc = _MockOrderBoardBloc();
+    streamBloc = _MockOrderStreamBloc();
     filterCubit = OrderFilterCubit();
     searchBloc = OrderSearchBloc(debounceDuration: Duration.zero);
     themeCubit = ThemeCubit();
 
     when(() => authBloc.state).thenReturn(const AuthAuthenticated(merchant));
+    when(() => streamBloc.state).thenReturn(const OrderStreamLive());
   });
 
   tearDown(() async {
@@ -81,6 +89,7 @@ void main() {
             BlocProvider<ThemeCubit>.value(value: themeCubit),
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<OrderBoardBloc>.value(value: boardBloc),
+            BlocProvider<OrderStreamBloc>.value(value: streamBloc),
             BlocProvider<OrderFilterCubit>.value(value: filterCubit),
             BlocProvider<OrderSearchBloc>.value(value: searchBloc),
           ],

@@ -17,6 +17,10 @@ import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart'
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_filter_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_search_bloc.dart';
+import 'package:orderpulse_flutter/features/realtime/data/demo_order_realtime_source.dart';
+import 'package:orderpulse_flutter/features/realtime/data/ws_order_realtime_source.dart';
+import 'package:orderpulse_flutter/features/realtime/domain/order_realtime_source.dart';
+import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 import 'package:orderpulse_flutter/features/simulator/data/demo_backend_engine.dart';
 
 /// Global service locator for OrderPulse dependencies.
@@ -67,6 +71,9 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
           getIt.registerSingleton<DemoBackendEngine>(engine);
           getIt.registerSingleton<TokenStorage>(tokenStorage);
           getIt.registerSingleton<DioClient>(dioClient);
+          getIt.registerSingleton<OrderRealtimeDataSource>(
+            DemoOrderRealtimeDataSource(),
+          );
         } else {
           final tokenStorage = SecureTokenStorage();
           final dioClient = DioClient(
@@ -77,6 +84,12 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
 
           getIt.registerSingleton<TokenStorage>(tokenStorage);
           getIt.registerSingleton<DioClient>(dioClient);
+          getIt.registerSingleton<OrderRealtimeDataSource>(
+            WsOrderRealtimeDataSource(
+              config: config,
+              tokenStorage: tokenStorage,
+            ),
+          );
         }
 
         getIt.registerSingleton<Dio>(getIt<DioClient>().dio);
@@ -104,6 +117,13 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
         );
         getIt.registerSingleton<OrderActionBloc>(
           OrderActionBloc(orderRepository: getIt<OrderRepository>()),
+          dispose: (bloc) => unawaited(bloc.close()),
+        );
+        getIt.registerSingleton<OrderStreamBloc>(
+          OrderStreamBloc(
+            dataSource: getIt<OrderRealtimeDataSource>(),
+            clock: _clock,
+          ),
           dispose: (bloc) => unawaited(bloc.close()),
         );
       },
