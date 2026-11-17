@@ -83,7 +83,7 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
   }
 }
 
-/// Registers base and active environment dependencies for the application.
+/// Registers base-scope and active environment-scope dependencies.
 Future<void> configureDependencies({
   AppConfig? config,
   AppClock? clock,
@@ -99,6 +99,8 @@ Future<void> configureDependencies({
     demoLatency: demoLatency,
   );
 
+  // Register persistent base-scope singletons BEFORE pushing environment scope
+  // so dropping/re-pushing the environment scope never disposes AuthBloc.
   sl.registerSingleton<AppClock>(resolvedClock);
   sl.registerSingleton<ThemeCubit>(
     ThemeCubit(),
@@ -109,9 +111,6 @@ Future<void> configureDependencies({
     dispose: (gate) => gate.dispose(),
   );
   sl.registerSingleton<EnvironmentConfigurator>(envConfigurator);
-
-  await envConfigurator.activateEnvironment(resolvedConfig);
-
   sl.registerSingleton<AuthBloc>(
     AuthBloc(
       environmentConfigurator: envConfigurator,
@@ -120,4 +119,6 @@ Future<void> configureDependencies({
     ),
     dispose: (bloc) => bloc.close(),
   );
+
+  await envConfigurator.activateEnvironment(resolvedConfig);
 }
