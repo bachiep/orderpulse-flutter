@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:orderpulse_flutter/core/di/injection.dart';
+import 'package:orderpulse_flutter/core/router/app_router.dart';
 import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
 import 'package:orderpulse_flutter/core/time/app_clock.dart';
 import 'package:orderpulse_flutter/core/widgets/state_views.dart';
@@ -38,7 +40,13 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
         BlocProvider.value(value: sl<OrderFilterCubit>()),
         BlocProvider.value(value: sl<OrderSearchBloc>()),
       ],
-      child: OrderBoardView(clock: sl<AppClock>()),
+      child: OrderBoardView(
+        clock: sl<AppClock>(),
+        onOrderTap: (order) => context.push(
+          AppRoutes.orderDetail(order.id),
+          extra: order,
+        ),
+      ),
     );
   }
 }

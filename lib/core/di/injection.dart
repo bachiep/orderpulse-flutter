@@ -11,6 +11,7 @@ import 'package:orderpulse_flutter/core/time/app_clock.dart';
 import 'package:orderpulse_flutter/features/auth/data/auth_repository_impl.dart';
 import 'package:orderpulse_flutter/features/auth/domain/auth_repository.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:orderpulse_flutter/features/dispatch/presentation/bloc/order_action_bloc.dart';
 import 'package:orderpulse_flutter/features/orders/data/order_repository_impl.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
@@ -99,6 +100,10 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
         );
         getIt.registerSingleton<OrderBoardBloc>(
           OrderBoardBloc(orderRepository: getIt<OrderRepository>()),
+          dispose: (bloc) => unawaited(bloc.close()),
+        );
+        getIt.registerSingleton<OrderActionBloc>(
+          OrderActionBloc(orderRepository: getIt<OrderRepository>()),
           dispose: (bloc) => unawaited(bloc.close()),
         );
       },
