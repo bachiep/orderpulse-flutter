@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:get_it/get_it.dart';
 import 'package:orderpulse_flutter/core/config/app_config.dart';
@@ -9,6 +11,11 @@ import 'package:orderpulse_flutter/core/time/app_clock.dart';
 import 'package:orderpulse_flutter/features/auth/data/auth_repository_impl.dart';
 import 'package:orderpulse_flutter/features/auth/domain/auth_repository.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:orderpulse_flutter/features/orders/data/order_repository_impl.dart';
+import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart';
+import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
+import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_filter_cubit.dart';
+import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_search_bloc.dart';
 import 'package:orderpulse_flutter/features/simulator/data/demo_backend_engine.dart';
 
 /// Global service locator for OrderPulse dependencies.
@@ -18,9 +25,14 @@ const String _envScopeName = 'environment-scope';
 
 /// Manages dynamic swapping of Live vs. Demo dependencies via `get_it` scopes.
 class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
-  GetItEnvironmentConfigurator(this._currentConfig, {this.demoLatency});
+  GetItEnvironmentConfigurator(
+    this._currentConfig, {
+    required AppClock clock,
+    this.demoLatency,
+  })  : _clock = clock;
 
   AppConfig _currentConfig;
+  final AppClock _clock;
   final Duration? demoLatency;
 
   @override
@@ -40,6 +52,7 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
 
         if (config.environment == AppEnvironment.demo) {
           final engine = DemoBackendEngine(
+            clock: _clock,
             simulatedLatency: demoLatency ?? const Duration(milliseconds: 90),
           );
           final tokenStorage = InMemoryTokenStorage();
@@ -72,6 +85,22 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
             tokenStorage: getIt<TokenStorage>(),
           ),
         );
+        getIt.registerSingleton<OrderRepository>(
+          OrderRepositoryImpl(dio: getIt<Dio>()),
+        );
+
+        getIt.registerSingleton<OrderFilterCubit>(
+          OrderFilterCubit(),
+          dispose: (cubit) => unawaited(cubit.close()),
+        );
+        getIt.registerSingleton<OrderSearchBloc>(
+          OrderSearchBloc(),
+          dispose: (bloc) => unawaited(bloc.close()),
+        );
+        getIt.registerSingleton<OrderBoardBloc>(
+          OrderBoardBloc(orderRepository: getIt<OrderRepository>()),
+          dispose: (bloc) => unawaited(bloc.close()),
+        );
       },
     );
   }
@@ -96,15 +125,14 @@ Future<void> configureDependencies({
 
   final envConfigurator = GetItEnvironmentConfigurator(
     resolvedConfig,
+    clock: resolvedClock,
     demoLatency: demoLatency,
   );
 
-  // Register persistent base-scope singletons BEFORE pushing environment scope
-  // so dropping/re-pushing the environment scope never disposes AuthBloc.
   sl.registerSingleton<AppClock>(resolvedClock);
   sl.registerSingleton<ThemeCubit>(
     ThemeCubit(),
-    dispose: (cubit) => cubit.close(),
+    dispose: (cubit) => unawaited(cubit.close()),
   );
   sl.registerSingleton<AuthSessionGate>(
     AuthSessionGate(),
@@ -117,7 +145,7 @@ Future<void> configureDependencies({
       authRepositoryProvider: () => sl<AuthRepository>(),
       authGate: sl<AuthSessionGate>(),
     ),
-    dispose: (bloc) => bloc.close(),
+    dispose: (bloc) => unawaited(bloc.close()),
   );
 
   await envConfigurator.activateEnvironment(resolvedConfig);

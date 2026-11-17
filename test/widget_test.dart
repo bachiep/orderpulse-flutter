@@ -22,6 +22,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('OrderPulse Kitchen - Demo'), findsOneWidget);
+    expect(find.text('ORD-1028'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Sign out'));
     await tester.pump();
