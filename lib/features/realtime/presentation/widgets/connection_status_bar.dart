@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:orderpulse_flutter/core/theme/app_theme.dart';
 import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 
 /// Compact realtime stream banner displaying Live / Reconnecting / Offline state.
@@ -14,37 +15,37 @@ class ConnectionStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final kds = KdsColors.of(context);
     final textTheme = Theme.of(context).textTheme;
 
     final (bg, fg, dotColor, label, showAction) = switch (state) {
       OrderStreamLive(:final receivedCount) => (
-          isDark ? const Color(0xFF064E3B) : const Color(0xFFD1FAE5),
-          isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46),
-          const Color(0xFF10B981),
+          kds.statusReadyContainer,
+          kds.onStatusReadyContainer,
+          kds.statusReady,
           receivedCount > 0
               ? 'Live • $receivedCount stream event(s)'
               : 'Live • Dispatch stream connected',
           false,
         ),
       OrderStreamConnecting() => (
-          isDark ? const Color(0xFF134E4A) : const Color(0xFFCCFBF1),
-          isDark ? const Color(0xFF5EEAD4) : const Color(0xFF115E59),
-          const Color(0xFF14B8A6),
+          kds.statusPreparingContainer,
+          kds.onStatusPreparingContainer,
+          kds.statusPreparing,
           'Connecting dispatch stream...',
           false,
         ),
       OrderStreamReconnecting(:final attempt, :final nextRetryDelay) => (
-          isDark ? const Color(0xFF78350F) : const Color(0xFFFEF3C7),
-          isDark ? const Color(0xFFFCD34D) : const Color(0xFF92400E),
-          const Color(0xFFF59E0B),
+          kds.statusNewContainer,
+          kds.onStatusNewContainer,
+          kds.statusNew,
           'Reconnecting (attempt $attempt, retry in ${nextRetryDelay.inSeconds}s)...',
           true,
         ),
       OrderStreamOffline() => (
-          isDark ? const Color(0xFF7F1D1D) : const Color(0xFFFEE2E2),
-          isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B),
-          const Color(0xFFEF4444),
+          kds.statusRejectedContainer,
+          kds.onStatusRejectedContainer,
+          kds.statusRejected,
           'Offline • Stream disconnected',
           true,
         ),
@@ -52,8 +53,11 @@ class ConnectionStatusBar extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(bottom: BorderSide(color: kds.border)),
+      ),
       child: Row(
         children: [
           Container(
@@ -68,9 +72,11 @@ class ConnectionStatusBar extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: textTheme.labelMedium?.copyWith(
-                color: fg,
-                fontWeight: FontWeight.w600,
+              style: tabularStyle(
+                textTheme.labelMedium?.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -79,13 +85,16 @@ class ConnectionStatusBar extends StatelessWidget {
             const SizedBox(width: 8),
             InkWell(
               onTap: onReconnectTap,
-              child: Text(
-                'Reconnect',
-                style: textTheme.labelMedium?.copyWith(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
-                  decoration: TextDecoration.underline,
-                  decorationColor: fg,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  'Reconnect',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: fg,
+                    fontWeight: FontWeight.w700,
+                    decoration: TextDecoration.underline,
+                    decorationColor: fg,
+                  ),
                 ),
               ),
             ),

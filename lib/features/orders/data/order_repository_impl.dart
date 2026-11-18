@@ -99,4 +99,27 @@ class OrderRepositoryImpl implements OrderRepository {
       return const Err(UnexpectedFailure('Failed to update order status.'));
     }
   }
+
+  @override
+  Future<Result<Order>> toggleItemPrepped({
+    required String orderId,
+    required int itemIndex,
+    required bool isPrepped,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/orders/$orderId/items/$itemIndex',
+        data: {'isPrepped': isPrepped},
+      );
+      final data = response.data;
+      if (data == null) {
+        return const Err(ServerFailure('Empty checklist update response.'));
+      }
+      return Success(OrderDto.fromJson(data));
+    } on DioException catch (error) {
+      return Err(mapDioExceptionToFailure(error));
+    } catch (_) {
+      return const Err(UnexpectedFailure('Failed to update item checklist.'));
+    }
+  }
 }

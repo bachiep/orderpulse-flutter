@@ -1,14 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:orderpulse_flutter/core/di/injection.dart';
 import 'package:orderpulse_flutter/core/router/app_router.dart';
+import 'package:orderpulse_flutter/core/theme/app_theme.dart';
 import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
 import 'package:orderpulse_flutter/core/time/app_clock.dart';
 import 'package:orderpulse_flutter/core/widgets/state_views.dart';
 import 'package:orderpulse_flutter/core/widgets/status_badge.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:orderpulse_flutter/features/insights/presentation/bloc/shift_insights_cubit.dart';
+import 'package:orderpulse_flutter/features/insights/presentation/widgets/shift_insights_view.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order.dart';
+import 'package:orderpulse_flutter/features/orders/domain/order_sla.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_filter_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_search_bloc.dart';
@@ -19,7 +25,7 @@ import 'package:orderpulse_flutter/features/realtime/presentation/widgets/connec
 import 'package:orderpulse_flutter/features/simulator/presentation/bloc/simulator_cubit.dart';
 import 'package:orderpulse_flutter/features/simulator/presentation/widgets/simulator_sheet.dart';
 
-/// Dependency-injected entry point for the merchant order dispatch board.
+/// Dependency-injected entry point for the merchant order dispatch board & insights shell.
 class OrderBoardPage extends StatefulWidget {
   const OrderBoardPage({super.key});
 
@@ -39,12 +45,17 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
     if (streamBloc.state is OrderStreamOffline) {
       streamBloc.add(const OrderStreamConnectRequested());
     }
+    final insightsCubit = sl<ShiftInsightsCubit>();
+    if (insightsCubit.state.orders.isEmpty && !insightsCubit.state.isLoading) {
+      unawaited(insightsCubit.loadShiftOrders());
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final simulatorCubit = sl<SimulatorCubit>();
     final streamBloc = sl<OrderStreamBloc>();
+    final insightsCubit = sl<ShiftInsightsCubit>();
 
     return MultiBlocProvider(
       providers: [
@@ -53,42 +64,62 @@ class _OrderBoardPageState extends State<OrderBoardPage> {
         BlocProvider.value(value: sl<OrderSearchBloc>()),
         BlocProvider.value(value: streamBloc),
         BlocProvider.value(value: simulatorCubit),
+        BlocProvider.value(value: insightsCubit),
       ],
-      child: OrderBoardView(
-        clock: sl<AppClock>(),
-        onOrderTap: (order) => context.push(
-          AppRoutes.orderDetail(order.id),
-          extra: order,
-        ),
-        extraActions: [
-          if (simulatorCubit.state.isSupported)
-            IconButton(
-              tooltip: 'Open Simulator',
-              onPressed: () => SimulatorSheet.show(
-                context,
-                simulatorCubit: simulatorCubit,
-                orderStreamBloc: streamBloc,
-              ),
-              icon: const Icon(Icons.science_outlined),
+      child: BlocBuilder<ShiftInsightsCubit, ShiftInsightsState>(
+        builder: (context, insightsState) {
+          return OrderBoardView(
+            clock: sl<AppClock>(),
+            shiftOrders: insightsState.orders,
+            onRefreshShiftOrders: () => insightsCubit.loadShiftOrders(),
+            onOrderUpsertSync: insightsCubit.upsertOrder,
+            onOrderTap: (order) => context.push(
+              AppRoutes.orderDetail(order.id),
+              extra: order,
             ),
-        ],
+            extraActions: [
+              if (simulatorCubit.state.isSupported)
+                IconButton(
+                  tooltip: 'Open Simulator',
+                  constraints: const BoxConstraints(minWidth: 38, minHeight: 48),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => SimulatorSheet.show(
+                    context,
+                    simulatorCubit: simulatorCubit,
+                    orderStreamBloc: streamBloc,
+                  ),
+                  icon: const Icon(Icons.science_outlined),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-/// Declarative order board rendering Loading, Loaded, Empty, and Error UI states.
+/// Declarative 2-tab KDS board rendering Live Queue and Shift Insights.
 class OrderBoardView extends StatefulWidget {
   const OrderBoardView({
     super.key,
     required this.clock,
     this.onOrderTap,
     this.extraActions = const [],
+    this.shiftOrders,
+    this.onRefreshShiftOrders,
+    this.onOrderUpsertSync,
+    this.initialTabIndex = 0,
+    this.slaTickInterval = const Duration(seconds: 30),
   });
 
   final AppClock clock;
   final void Function(Order order)? onOrderTap;
   final List<Widget> extraActions;
+  final List<Order>? shiftOrders;
+  final Future<void> Function()? onRefreshShiftOrders;
+  final ValueChanged<Order>? onOrderUpsertSync;
+  final int initialTabIndex;
+  final Duration slaTickInterval;
 
   @override
   State<OrderBoardView> createState() => _OrderBoardViewState();
@@ -97,15 +128,27 @@ class OrderBoardView extends StatefulWidget {
 class _OrderBoardViewState extends State<OrderBoardView> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  late int _selectedTabIndex;
+  Timer? _slaTicker;
 
   @override
   void initState() {
     super.initState();
+    _selectedTabIndex = widget.initialTabIndex.clamp(0, 1);
     _scrollController.addListener(_onScroll);
+    if (widget.slaTickInterval > Duration.zero) {
+      _slaTicker = Timer.periodic(widget.slaTickInterval, (_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _slaTicker?.cancel();
+    _slaTicker = null;
     _searchController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -131,10 +174,12 @@ class _OrderBoardViewState extends State<OrderBoardView> {
     switch (streamState.latestEvent!) {
       case OrderCreatedEvent(:final order):
         boardBloc.add(OrderBoardOrderUpserted(order, isNewIncoming: true));
+        widget.onOrderUpsertSync?.call(order);
       case OrderCancelledEvent(:final orderId, :final reason):
         boardBloc.add(
           OrderBoardOrderCancelled(orderId: orderId, reason: reason),
         );
+        unawaited(widget.onRefreshShiftOrders?.call());
       case RiderAssignedEvent(
           :final orderId,
           :final riderName,
@@ -147,16 +192,31 @@ class _OrderBoardViewState extends State<OrderBoardView> {
             riderPlate: riderPlate,
           ),
         );
+        unawaited(widget.onRefreshShiftOrders?.call());
     }
+  }
+
+  (String, String) _resolveAppBarTitles(AuthState authState) {
+    if (authState case AuthAuthenticated(:final merchant)) {
+      final branch = merchant.branchName.trim();
+      final name = merchant.merchantName.trim();
+      final subtitle = branch.isNotEmpty
+          ? (branch.contains('•') || name.startsWith('OrderPulse')
+              ? branch
+              : '$branch • $name')
+          : name;
+      return ('OrderPulse', subtitle);
+    }
+    return ('OrderPulse', 'Kitchen Dispatch');
   }
 
   @override
   Widget build(BuildContext context) {
+    final kds = KdsColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final authState = context.watch<AuthBloc>().state;
-    final title = switch (authState) {
-      AuthAuthenticated(:final merchant) => merchant.merchantName,
-      _ => 'OrderPulse Dispatch',
-    };
+    final (appBarTitle, appBarSubtitle) = _resolveAppBarTitles(authState);
 
     return MultiBlocListener(
       listeners: [
@@ -174,216 +234,427 @@ class _OrderBoardViewState extends State<OrderBoardView> {
         ),
         BlocListener<OrderStreamBloc, OrderStreamState>(
           listenWhen: (prev, curr) =>
-              curr is OrderStreamLive && curr.latestEvent != null &&
+              curr is OrderStreamLive &&
+              curr.latestEvent != null &&
               prev != curr,
           listener: _handleStreamEvent,
         ),
       ],
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            title,
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            ...widget.extraActions,
-            IconButton(
-              tooltip: 'Toggle theme',
-              onPressed: () => context.read<ThemeCubit>().toggle(),
-              icon: const Icon(Icons.brightness_6_outlined),
-            ),
-            IconButton(
-              tooltip: 'Sign out',
-              onPressed: () =>
-                  context.read<AuthBloc>().add(const AuthLogoutRequested()),
-              icon: const Icon(Icons.logout_rounded),
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              BlocBuilder<OrderStreamBloc, OrderStreamState>(
-                builder: (context, streamState) {
-                  return ConnectionStatusBar(
-                    state: streamState,
-                    onReconnectTap: () => context
-                        .read<OrderStreamBloc>()
-                        .add(const OrderStreamConnectRequested()),
-                  );
-                },
-              ),
-              BlocBuilder<OrderBoardBloc, OrderBoardState>(
-                buildWhen: (prev, curr) =>
-                    (prev is OrderBoardLoaded ? prev.incomingAlertOrder : null) !=
-                    (curr is OrderBoardLoaded ? curr.incomingAlertOrder : null),
-                builder: (context, boardState) {
-                  if (boardState is! OrderBoardLoaded ||
-                      boardState.incomingAlertOrder == null) {
-                    return const SizedBox.shrink();
-                  }
-                  final alertOrder = boardState.incomingAlertOrder!;
-                  return _IncomingOrderBanner(
-                    order: alertOrder,
-                    onView: widget.onOrderTap == null
-                        ? null
-                        : () {
-                            context
-                                .read<OrderBoardBloc>()
-                                .add(const OrderBoardAlertDismissed());
-                            widget.onOrderTap!(alertOrder);
-                          },
-                    onDismiss: () => context
-                        .read<OrderBoardBloc>()
-                        .add(const OrderBoardAlertDismissed()),
-                  );
-                },
-              ),
-              _ShiftSummaryStrip(
-                stats: context.select<OrderBoardBloc, MerchantShiftStats?>(
-                  (bloc) => bloc.state.stats,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) => context
-                      .read<OrderSearchBloc>()
-                      .add(OrderSearchQueryChanged(value)),
-                  decoration: InputDecoration(
-                    hintText: 'Search order ID or customer...',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    isDense: true,
-                    suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: _searchController,
-                      builder: (context, value, _) {
-                        if (value.text.isEmpty) return const SizedBox.shrink();
-                        return IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: () {
-                            _searchController.clear();
-                            context
-                                .read<OrderSearchBloc>()
-                                .add(const OrderSearchCleared());
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        );
-                      },
+      child: BlocBuilder<OrderBoardBloc, OrderBoardState>(
+        builder: (context, boardState) {
+          final now = widget.clock.now();
+          final loadedOrders = boardState is OrderBoardLoaded
+              ? boardState.orders
+              : const <Order>[];
+          final analyticsOrders =
+              (widget.shiftOrders != null && widget.shiftOrders!.isNotEmpty)
+                  ? widget.shiftOrders!
+                  : loadedOrders;
+
+          final activeSource = analyticsOrders.isNotEmpty
+              ? analyticsOrders.where((o) => o.status.isActive).toList()
+              : loadedOrders.where((o) => o.status.isActive).toList();
+          final activeCount =
+              boardState.stats?.activeCount ?? activeSource.length;
+          final urgentSlaCount = activeSource
+              .where((o) => OrderSlaEvaluator.evaluate(o, now).urgency.isUrgent)
+              .length;
+          final readyCount = activeSource
+              .where((o) => o.status == OrderStatus.ready)
+              .length;
+
+          return Scaffold(
+            appBar: AppBar(
+              titleSpacing: 16,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    appBarTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: kds.textPrimary,
+                      height: 1.15,
                     ),
                   ),
+                  Text(
+                    appBarSubtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.labelSmall?.copyWith(
+                      color: kds.textSecondary,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                BlocBuilder<OrderStreamBloc, OrderStreamState>(
+                  builder: (context, streamState) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: _AppBarLivePill(state: streamState),
+                    );
+                  },
                 ),
+                ...widget.extraActions,
+                IconButton(
+                  tooltip: 'Toggle theme',
+                  constraints: const BoxConstraints(minWidth: 38, minHeight: 48),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => context.read<ThemeCubit>().toggle(),
+                  icon: Icon(
+                    isDark
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Sign out',
+                  constraints: const BoxConstraints(minWidth: 38, minHeight: 48),
+                  padding: const EdgeInsets.only(right: 4),
+                  onPressed: () =>
+                      context.read<AuthBloc>().add(const AuthLogoutRequested()),
+                  icon: const Icon(Icons.logout_rounded),
+                ),
+              ],
+            ),
+            body: SafeArea(
+              bottom: false,
+              child: IndexedStack(
+                index: _selectedTabIndex,
+                children: [
+                  _LiveQueueTab(
+                    clock: widget.clock,
+                    now: now,
+                    boardState: boardState,
+                    activeCount: activeCount,
+                    urgentSlaCount: urgentSlaCount,
+                    readyCount: readyCount,
+                    searchController: _searchController,
+                    scrollController: _scrollController,
+                    onOrderTap: widget.onOrderTap,
+                    onRefresh: () async {
+                      final bloc = context.read<OrderBoardBloc>();
+                      bloc.add(const OrderBoardRefreshRequested());
+                      await Future.wait([
+                        bloc.stream.firstWhere(
+                          (next) =>
+                              next is! OrderBoardLoaded || !next.isRefreshing,
+                        ),
+                        if (widget.onRefreshShiftOrders != null)
+                          widget.onRefreshShiftOrders!(),
+                      ]);
+                    },
+                  ),
+                  ShiftInsightsView(
+                    orders: analyticsOrders,
+                    now: now,
+                    onRefresh: widget.onRefreshShiftOrders ??
+                        () async {
+                          final bloc = context.read<OrderBoardBloc>();
+                          bloc.add(const OrderBoardRefreshRequested());
+                          await bloc.stream.firstWhere(
+                            (next) =>
+                                next is! OrderBoardLoaded || !next.isRefreshing,
+                          );
+                        },
+                  ),
+                ],
               ),
-              _StatusFilterTabs(
-                selected: context.watch<OrderFilterCubit>().state,
-                onSelected: (tab) =>
-                    context.read<OrderFilterCubit>().selectTab(tab),
+            ),
+            bottomNavigationBar: Container(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: kds.border)),
               ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: BlocBuilder<OrderBoardBloc, OrderBoardState>(
-                  builder: (context, state) {
-                    return switch (state) {
-                      OrderBoardLoading() => const LoadingStateView(
-                          message: 'Loading live merchant orders...',
-                        ),
-                      OrderBoardError(:final message) => ErrorStateView(
-                          message: message,
-                          onRetry: () => context
-                              .read<OrderBoardBloc>()
-                              .add(const OrderBoardLoadRequested()),
-                        ),
-                      OrderBoardEmpty(:final filter, :final searchQuery) =>
-                        EmptyStateView(
-                          title: 'No matching orders',
-                          subtitle: searchQuery.isNotEmpty
-                              ? 'No orders matched "$searchQuery" under ${filter.label}.'
-                              : 'No orders currently in ${filter.label}.',
-                          icon: Icons.receipt_long_outlined,
-                          actionLabel: filter != OrderFilterTab.all ||
-                                  searchQuery.isNotEmpty
-                              ? 'Reset Filters'
-                              : 'Refresh Board',
-                          onAction: () {
-                            if (filter != OrderFilterTab.all ||
-                                searchQuery.isNotEmpty) {
-                              _searchController.clear();
-                              context
-                                  .read<OrderSearchBloc>()
-                                  .add(const OrderSearchCleared());
-                              context.read<OrderFilterCubit>().reset();
-                            } else {
-                              context
-                                  .read<OrderBoardBloc>()
-                                  .add(const OrderBoardLoadRequested());
-                            }
-                          },
-                        ),
-                      OrderBoardLoaded(
-                        :final orders,
-                        :final hasMore,
-                        :final isLoadingMore,
-                      ) =>
-                        RefreshIndicator(
-                          onRefresh: () async {
-                            final bloc = context.read<OrderBoardBloc>();
-                            bloc.add(const OrderBoardRefreshRequested());
-                            await bloc.stream.firstWhere(
-                              (next) =>
-                                  next is! OrderBoardLoaded || !next.isRefreshing,
-                            );
-                          },
-                          child: ListView.separated(
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                            itemCount: orders.length + (hasMore ? 1 : 0),
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              if (index >= orders.length) {
-                                return Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  child: Center(
-                                    child: isLoadingMore
-                                        ? const SizedBox(
-                                            width: 24,
-                                            height: 24,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.5,
-                                            ),
-                                          )
-                                        : OutlinedButton(
-                                            onPressed: () => context
-                                                .read<OrderBoardBloc>()
-                                                .add(
-                                                  const OrderBoardLoadMoreRequested(),
-                                                ),
-                                            child: const Text('Load More Orders'),
-                                          ),
+              child: NavigationBar(
+                height: 68,
+                selectedIndex: _selectedTabIndex,
+                onDestinationSelected: (index) {
+                  if (_selectedTabIndex == index) return;
+                  setState(() => _selectedTabIndex = index);
+                  if (index == 1) {
+                    unawaited(widget.onRefreshShiftOrders?.call());
+                  }
+                },
+                destinations: [
+                  NavigationDestination(
+                    icon: Badge(
+                      isLabelVisible: activeCount > 0,
+                      label: Text('$activeCount'),
+                      child: const Icon(Icons.receipt_long_outlined),
+                    ),
+                    selectedIcon: Badge(
+                      isLabelVisible: activeCount > 0,
+                      label: Text('$activeCount'),
+                      child: const Icon(Icons.receipt_long_rounded),
+                    ),
+                    label: 'Live Queue',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.insights_outlined),
+                    selectedIcon: Icon(Icons.insights_rounded),
+                    label: 'Shift Insights',
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AppBarLivePill extends StatelessWidget {
+  const _AppBarLivePill({required this.state});
+
+  final OrderStreamState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final kds = KdsColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    final (bg, fg, border, dot, text) = switch (state) {
+      OrderStreamLive() => (
+          kds.statusReadyContainer,
+          kds.onStatusReadyContainer,
+          kds.statusReady,
+          kds.statusReady,
+          'LIVE',
+        ),
+      OrderStreamConnecting() || OrderStreamReconnecting() => (
+          kds.statusNewContainer,
+          kds.onStatusNewContainer,
+          kds.statusNew,
+          kds.statusNew,
+          'SYNCING',
+        ),
+      OrderStreamOffline() => (
+          kds.statusRejectedContainer,
+          kds.onStatusRejectedContainer,
+          kds.statusRejected,
+          kds.statusRejected,
+          'OFFLINE',
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: tabularStyle(
+              textTheme.labelSmall?.copyWith(
+                color: fg,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveQueueTab extends StatelessWidget {
+  const _LiveQueueTab({
+    required this.clock,
+    required this.now,
+    required this.boardState,
+    required this.activeCount,
+    required this.urgentSlaCount,
+    required this.readyCount,
+    required this.searchController,
+    required this.scrollController,
+    required this.onRefresh,
+    this.onOrderTap,
+  });
+
+  final AppClock clock;
+  final DateTime now;
+  final OrderBoardState boardState;
+  final int activeCount;
+  final int urgentSlaCount;
+  final int readyCount;
+  final TextEditingController searchController;
+  final ScrollController scrollController;
+  final Future<void> Function() onRefresh;
+  final void Function(Order order)? onOrderTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        BlocBuilder<OrderStreamBloc, OrderStreamState>(
+          builder: (context, streamState) {
+            return ConnectionStatusBar(
+              state: streamState,
+              onReconnectTap: () => context
+                  .read<OrderStreamBloc>()
+                  .add(const OrderStreamConnectRequested()),
+            );
+          },
+        ),
+        if (boardState case OrderBoardLoaded(:final incomingAlertOrder?))
+          _IncomingOrderBanner(
+            order: incomingAlertOrder,
+            onView: onOrderTap == null
+                ? null
+                : () {
+                    context
+                        .read<OrderBoardBloc>()
+                        .add(const OrderBoardAlertDismissed());
+                    onOrderTap!(incomingAlertOrder);
+                  },
+            onDismiss: () => context
+                .read<OrderBoardBloc>()
+                .add(const OrderBoardAlertDismissed()),
+          ),
+        _QueueSummaryStrip(
+          activeCount: activeCount,
+          urgentSlaCount: urgentSlaCount,
+          readyCount: readyCount,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: TextField(
+            controller: searchController,
+            onChanged: (value) => context
+                .read<OrderSearchBloc>()
+                .add(OrderSearchQueryChanged(value)),
+            decoration: InputDecoration(
+              hintText: 'Search order ID or customer...',
+              prefixIcon: const Icon(Icons.search_rounded),
+              isDense: true,
+              suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: searchController,
+                builder: (context, value, _) {
+                  if (value.text.isEmpty) return const SizedBox.shrink();
+                  return IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      searchController.clear();
+                      context
+                          .read<OrderSearchBloc>()
+                          .add(const OrderSearchCleared());
+                    },
+                    icon: const Icon(Icons.close_rounded),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        _StatusFilterTabs(
+          selected: context.watch<OrderFilterCubit>().state,
+          onSelected: (tab) => context.read<OrderFilterCubit>().selectTab(tab),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: switch (boardState) {
+            OrderBoardLoading() => const LoadingStateView(
+                message: 'Loading live merchant orders...',
+              ),
+            OrderBoardError(:final message) => ErrorStateView(
+                message: message,
+                onRetry: () => context
+                    .read<OrderBoardBloc>()
+                    .add(const OrderBoardLoadRequested()),
+              ),
+            OrderBoardEmpty(:final filter, :final searchQuery) =>
+              EmptyStateView(
+                title: 'No matching orders',
+                subtitle: searchQuery.isNotEmpty
+                    ? 'No orders matched "$searchQuery" under ${filter.label}.'
+                    : 'No orders currently in ${filter.label}.',
+                icon: Icons.receipt_long_outlined,
+                actionLabel:
+                    filter != OrderFilterTab.all || searchQuery.isNotEmpty
+                        ? 'Reset Filters'
+                        : 'Refresh Board',
+                onAction: () {
+                  if (filter != OrderFilterTab.all || searchQuery.isNotEmpty) {
+                    searchController.clear();
+                    context
+                        .read<OrderSearchBloc>()
+                        .add(const OrderSearchCleared());
+                    context.read<OrderFilterCubit>().reset();
+                  } else {
+                    context
+                        .read<OrderBoardBloc>()
+                        .add(const OrderBoardLoadRequested());
+                  }
+                },
+              ),
+            OrderBoardLoaded(
+              :final orders,
+              :final hasMore,
+              :final isLoadingMore,
+            ) =>
+              RefreshIndicator(
+                onRefresh: onRefresh,
+                child: ListView.separated(
+                  controller: scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                  itemCount: orders.length + (hasMore ? 1 : 0),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    if (index >= orders.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: isLoadingMore
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
                                   ),
-                                );
-                              }
-                              final order = orders[index];
-                              return OrderCard(
-                                order: order,
-                                now: widget.clock.now(),
-                                onTap: widget.onOrderTap == null
-                                    ? null
-                                    : () => widget.onOrderTap!(order),
-                              );
-                            },
-                          ),
+                                )
+                              : OutlinedButton(
+                                  onPressed: () => context
+                                      .read<OrderBoardBloc>()
+                                      .add(const OrderBoardLoadMoreRequested()),
+                                  child: const Text('Load More Orders'),
+                                ),
                         ),
-                    };
+                      );
+                    }
+                    final order = orders[index];
+                    return OrderCard(
+                      order: order,
+                      now: clock.now(),
+                      onTap:
+                          onOrderTap == null ? null : () => onOrderTap!(order),
+                    );
                   },
                 ),
               ),
-            ],
-          ),
+          },
         ),
-      ),
+      ],
     );
   }
 }
@@ -401,20 +672,23 @@ class _IncomingOrderBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final kds = KdsColors.of(context);
     final textTheme = Theme.of(context).textTheme;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer,
+        color: kds.statusNewContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.4)),
+        border: Border.all(color: kds.statusNew.withValues(alpha: 0.7)),
       ),
       child: Row(
         children: [
-          Icon(Icons.notifications_active_rounded, color: colorScheme.primary),
+          Icon(
+            Icons.notifications_active_rounded,
+            color: kds.onStatusNewContainer,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -425,13 +699,15 @@ class _IncomingOrderBanner extends StatelessWidget {
                   'New Order ${order.id}',
                   style: textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: colorScheme.onPrimaryContainer,
+                    color: kds.onStatusNewContainer,
                   ),
                 ),
                 Text(
                   '${order.customerName} • ${formatVnd(order.totalAmountVnd)}',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onPrimaryContainer,
+                  style: tabularStyle(
+                    textTheme.bodySmall?.copyWith(
+                      color: kds.onStatusNewContainer,
+                    ),
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -446,7 +722,11 @@ class _IncomingOrderBanner extends StatelessWidget {
           IconButton(
             tooltip: 'Dismiss alert',
             onPressed: onDismiss,
-            icon: const Icon(Icons.close_rounded, size: 18),
+            icon: Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: kds.onStatusNewContainer,
+            ),
           ),
         ],
       ),
@@ -454,84 +734,124 @@ class _IncomingOrderBanner extends StatelessWidget {
   }
 }
 
-class _ShiftSummaryStrip extends StatelessWidget {
-  const _ShiftSummaryStrip({required this.stats});
+class _QueueSummaryStrip extends StatelessWidget {
+  const _QueueSummaryStrip({
+    required this.activeCount,
+    required this.urgentSlaCount,
+    required this.readyCount,
+  });
 
-  final MerchantShiftStats? stats;
+  final int activeCount;
+  final int urgentSlaCount;
+  final int readyCount;
 
   @override
   Widget build(BuildContext context) {
-    if (stats == null) return const SizedBox.shrink();
-    final colorScheme = Theme.of(context).colorScheme;
+    final kds = KdsColors.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _KpiChip(
-              label: 'Active Queue',
-              value: '${stats!.activeCount}',
-              color: colorScheme.primaryContainer,
-              onColor: colorScheme.onPrimaryContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: _QueueStatTile(
+              label: 'Active',
+              value: '$activeCount',
+              icon: Icons.local_fire_department_outlined,
+              bg: kds.statusPreparingContainer,
+              fg: kds.onStatusPreparingContainer,
+              border: kds.statusPreparing,
             ),
-            const SizedBox(width: 8),
-            _KpiChip(
-              label: 'Completed',
-              value: '${stats!.completedToday}',
-              color: colorScheme.secondaryContainer,
-              onColor: colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _QueueStatTile(
+              label: 'Urgent SLA',
+              value: '$urgentSlaCount',
+              icon: Icons.warning_amber_rounded,
+              bg: urgentSlaCount > 0
+                  ? kds.statusRejectedContainer
+                  : kds.cardElevated,
+              fg: urgentSlaCount > 0
+                  ? kds.onStatusRejectedContainer
+                  : kds.textSecondary,
+              border: urgentSlaCount > 0 ? kds.statusRejected : kds.border,
             ),
-            const SizedBox(width: 8),
-            _KpiChip(
-              label: 'Shift Revenue',
-              value: formatVnd(stats!.revenueTodayVnd),
-              color: colorScheme.surfaceContainerHighest,
-              onColor: colorScheme.onSurface,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _QueueStatTile(
+              label: 'Ready',
+              value: '$readyCount',
+              icon: Icons.inventory_2_outlined,
+              bg: kds.statusReadyContainer,
+              fg: kds.onStatusReadyContainer,
+              border: kds.statusReady,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _KpiChip extends StatelessWidget {
-  const _KpiChip({
+class _QueueStatTile extends StatelessWidget {
+  const _QueueStatTile({
     required this.label,
     required this.value,
-    required this.color,
-    required this.onColor,
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    required this.border,
   });
 
   final String label;
   final String value;
-  final Color color;
-  final Color onColor;
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final Color border;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(10),
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border.withValues(alpha: 0.55)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: textTheme.labelSmall?.copyWith(color: onColor),
+          Row(
+            children: [
+              Icon(icon, size: 13, color: fg),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: fg,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 2),
           Text(
             value,
-            style: textTheme.titleSmall?.copyWith(
-              color: onColor,
-              fontWeight: FontWeight.w700,
+            style: tabularStyle(
+              textTheme.titleMedium?.copyWith(
+                color: fg,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],

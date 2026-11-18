@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -88,6 +89,7 @@ class DemoBackendEngine {
       status: OrderStatus.newOrder,
       createdAt: now,
       updatedAt: now,
+      pickupCode: 'PK-$seq',
       kitchenNotes: kitchenNotes ?? 'Pack dipping sauce separately.',
     );
     _orders.insert(0, order);
@@ -114,6 +116,9 @@ class DemoBackendEngine {
     final updated = _orders[index].copyWith(
       riderName: riderName,
       riderPlate: riderPlate,
+      riderPhone: '0903 *** 482',
+      riderVehicle: 'Honda Wave RSX',
+      riderEtaMinutes: 4,
       updatedAt: _clock.now(),
     );
     _orders[index] = updated;
@@ -140,8 +145,8 @@ class DemoBackendEngine {
         'expiresAt': _clock.now().add(const Duration(minutes: 15)).toIso8601String(),
         'merchant': {
           'id': 'merchant-demo-01',
-          'merchantName': 'OrderPulse Kitchen - Demo',
-          'branchName': 'District 1 Flagship',
+          'merchantName': 'OrderPulse',
+          'branchName': 'District 1 • Demo Kitchen',
           'email': (email != null && email.isNotEmpty)
               ? email
               : 'merchant@orderpulse.demo',
@@ -181,27 +186,37 @@ class DemoBackendEngine {
     if (method == 'GET' && path == '/merchant/profile') {
       return _jsonResponse(200, {
         'id': 'merchant-demo-01',
-        'merchantName': 'OrderPulse Kitchen - Demo',
-        'branchName': 'District 1 Flagship',
+        'merchantName': 'OrderPulse',
+        'branchName': 'District 1 • Demo Kitchen',
         'email': 'merchant@orderpulse.demo',
       });
     }
 
     if (method == 'GET' && path == '/orders/stats') {
-      final activeCount = _orders
-          .where((o) =>
-              o.status == OrderStatus.newOrder ||
-              o.status == OrderStatus.preparing ||
-              o.status == OrderStatus.ready)
-          .length;
+      final activeCount = _orders.where((o) => o.status.isActive).length;
       final completed =
           _orders.where((o) => o.status == OrderStatus.completed).toList();
       final revenue = completed.fold<int>(0, (sum, o) => sum + o.totalAmountVnd);
+      final prepDurations = _orders
+          .where(
+            (o) =>
+                o.status == OrderStatus.ready ||
+                o.status == OrderStatus.completed,
+          )
+          .map((o) {
+            final finish = o.readyAt ?? o.completedAt ?? o.updatedAt;
+            return math.max(1.0, finish.difference(o.createdAt).inSeconds / 60.0);
+          })
+          .toList();
+      final avgPrep = prepDurations.isEmpty
+          ? 0.0
+          : prepDurations.reduce((a, b) => a + b) / prepDurations.length;
+
       return _jsonResponse(200, {
         'activeCount': activeCount,
         'completedToday': completed.length,
         'revenueTodayVnd': revenue,
-        'avgPrepMinutes': 11.4,
+        'avgPrepMinutes': double.parse(avgPrep.toStringAsFixed(1)),
       });
     }
 
@@ -209,13 +224,13 @@ class DemoBackendEngine {
       return _handleListOrders(options.queryParameters);
     }
 
-    if (method == 'GET' && path.startsWith('/orders/')) {
-      final id = path.substring('/orders/'.length);
-      final match = _orders.where((o) => o.id == id);
-      if (match.isEmpty) {
-        return _jsonResponse(404, {'message': 'Order $id not found.'});
-      }
-      return _jsonResponse(200, OrderDto.toJson(match.first));
+    final itemPrepMatch =
+        RegExp(r'^/orders/([^/]+)/items/(\d+)$').firstMatch(path);
+    if (method == 'PATCH' && itemPrepMatch != null) {
+      final orderId = itemPrepMatch.group(1)!;
+      final itemIndex = int.tryParse(itemPrepMatch.group(2)!) ?? -1;
+      final isPrepped = body?['isPrepped'] as bool?;
+      return _handleToggleItemPrepped(orderId, itemIndex, isPrepped);
     }
 
     if (method == 'PATCH' &&
@@ -226,6 +241,15 @@ class DemoBackendEngine {
         path.length - '/status'.length,
       );
       return _handleTransitionOrder(orderId, body);
+    }
+
+    if (method == 'GET' && path.startsWith('/orders/')) {
+      final id = path.substring('/orders/'.length);
+      final match = _orders.where((o) => o.id == id);
+      if (match.isEmpty) {
+        return _jsonResponse(404, {'message': 'Order $id not found.'});
+      }
+      return _jsonResponse(200, OrderDto.toJson(match.first));
     }
 
     return _jsonResponse(404, {'message': 'Route not found: $method $path'});
@@ -267,6 +291,24 @@ class DemoBackendEngine {
     });
   }
 
+  ResponseBody _handleToggleItemPrepped(
+    String orderId,
+    int itemIndex,
+    bool? isPrepped,
+  ) {
+    final index = _orders.indexWhere((o) => o.id == orderId);
+    if (index < 0) {
+      return _jsonResponse(404, {'message': 'Order $orderId not found.'});
+    }
+    final current = _orders[index];
+    if (itemIndex < 0 || itemIndex >= current.items.length) {
+      return _jsonResponse(400, {'message': 'Invalid item index $itemIndex.'});
+    }
+    final updated = current.toggleItemPrepped(itemIndex, isPrepped: isPrepped);
+    _orders[index] = updated;
+    return _jsonResponse(200, OrderDto.toJson(updated));
+  }
+
   ResponseBody _handleTransitionOrder(
     String orderId,
     Map<String, dynamic>? body,
@@ -280,6 +322,7 @@ class DemoBackendEngine {
     final targetStatusRaw = body?['status'] as String? ?? '';
     final targetStatus = OrderStatus.fromApi(targetStatusRaw);
     final reason = (body?['rejectionReason'] as String?)?.trim();
+    final now = _clock.now();
 
     final isAllowed = switch ((current.status, targetStatus)) {
       (OrderStatus.newOrder, OrderStatus.preparing) => true,
@@ -297,17 +340,35 @@ class DemoBackendEngine {
       });
     }
 
+    final shouldAutoAssignRider =
+        targetStatus == OrderStatus.ready && current.riderName == null;
+    final nextItems = targetStatus == OrderStatus.ready
+        ? current.items
+            .map((item) => item.copyWith(isPrepped: true))
+            .toList(growable: false)
+        : current.items;
+
     final updated = current.copyWith(
+      items: nextItems,
       status: targetStatus,
-      updatedAt: _clock.now(),
+      updatedAt: now,
+      acceptedAt: targetStatus == OrderStatus.preparing
+          ? (current.acceptedAt ?? now)
+          : current.acceptedAt,
+      readyAt: targetStatus == OrderStatus.ready
+          ? (current.readyAt ?? now)
+          : current.readyAt,
+      completedAt: targetStatus == OrderStatus.completed
+          ? (current.completedAt ?? now)
+          : current.completedAt,
       rejectionReason: targetStatus == OrderStatus.rejected ? reason : null,
-      riderName: targetStatus == OrderStatus.ready && current.riderName == null
-          ? 'Pham Van Tien'
-          : current.riderName,
-      riderPlate:
-          targetStatus == OrderStatus.ready && current.riderPlate == null
-              ? '59-P2 482.19'
-              : current.riderPlate,
+      riderName: shouldAutoAssignRider ? 'Pham Van Tien' : current.riderName,
+      riderPlate: shouldAutoAssignRider ? '59-P2 482.19' : current.riderPlate,
+      riderPhone: shouldAutoAssignRider ? '0907 *** 635' : current.riderPhone,
+      riderVehicle:
+          shouldAutoAssignRider ? 'Yamaha Sirius' : current.riderVehicle,
+      riderEtaMinutes:
+          shouldAutoAssignRider ? 3 : current.riderEtaMinutes,
     );
     _orders[index] = updated;
     return _jsonResponse(200, OrderDto.toJson(updated));
@@ -352,6 +413,7 @@ class DemoBackendEngine {
         status: OrderStatus.newOrder,
         createdAt: now.subtract(const Duration(minutes: 2)),
         updatedAt: now.subtract(const Duration(minutes: 2)),
+        pickupCode: 'PK-284',
         kitchenNotes: 'Peanut allergy: keep crushed peanuts out.',
       ),
       Order(
@@ -372,8 +434,9 @@ class DemoBackendEngine {
         ],
         totalAmountVnd: 162000,
         status: OrderStatus.newOrder,
-        createdAt: now.subtract(const Duration(minutes: 4)),
-        updatedAt: now.subtract(const Duration(minutes: 4)),
+        createdAt: now.subtract(const Duration(minutes: 12)),
+        updatedAt: now.subtract(const Duration(minutes: 12)),
+        pickupCode: 'PK-279',
         kitchenNotes: 'Separate broth and noodles.',
       ),
       Order(
@@ -385,19 +448,25 @@ class DemoBackendEngine {
             name: 'Banh Mi Chao Dac Biet',
             quantity: 1,
             unitPriceVnd: 69000,
+            isPrepped: true,
           ),
           OrderItem(
-            name: 'Nuoc Ep Cam Tuoi',
+            name: 'Ca Phe Sua Da',
             quantity: 2,
-            unitPriceVnd: 35000,
+            unitPriceVnd: 32000,
           ),
         ],
-        totalAmountVnd: 139000,
+        totalAmountVnd: 133000,
         status: OrderStatus.preparing,
         createdAt: now.subtract(const Duration(minutes: 8)),
         updatedAt: now.subtract(const Duration(minutes: 5)),
+        acceptedAt: now.subtract(const Duration(minutes: 6)),
+        pickupCode: 'PK-261',
         riderName: 'Nguyen Van Hung',
         riderPlate: '59-C1 731.04',
+        riderPhone: '0903 *** 812',
+        riderVehicle: 'Honda Wave RSX',
+        riderEtaMinutes: 4,
       ),
       Order(
         id: 'ORD-1025',
@@ -409,13 +478,26 @@ class DemoBackendEngine {
             quantity: 3,
             unitPriceVnd: 68000,
             note: 'Mild chili',
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Tra Dao Cam Sa',
+            quantity: 2,
+            unitPriceVnd: 38000,
           ),
         ],
-        totalAmountVnd: 204000,
+        totalAmountVnd: 280000,
         status: OrderStatus.preparing,
-        createdAt: now.subtract(const Duration(minutes: 11)),
-        updatedAt: now.subtract(const Duration(minutes: 6)),
-        kitchenNotes: 'Include extra lime wedges.',
+        createdAt: now.subtract(const Duration(minutes: 19)),
+        updatedAt: now.subtract(const Duration(minutes: 13)),
+        acceptedAt: now.subtract(const Duration(minutes: 13)),
+        pickupCode: 'PK-255',
+        kitchenNotes: 'Include extra lime wedges and shrimp paste on side.',
+        riderName: 'Le Hoang Duy',
+        riderPlate: '59-D2 814.20',
+        riderPhone: '0914 *** 520',
+        riderVehicle: 'Honda Winner X',
+        riderEtaMinutes: 2,
       ),
       Order(
         id: 'ORD-1024',
@@ -427,19 +509,27 @@ class DemoBackendEngine {
             quantity: 3,
             unitPriceVnd: 45000,
             note: '50% sugar',
+            isPrepped: true,
           ),
           OrderItem(
             name: 'Banh Flan Caramen',
             quantity: 2,
             unitPriceVnd: 22000,
+            isPrepped: true,
           ),
         ],
         totalAmountVnd: 179000,
         status: OrderStatus.ready,
-        createdAt: now.subtract(const Duration(minutes: 16)),
-        updatedAt: now.subtract(const Duration(minutes: 3)),
+        createdAt: now.subtract(const Duration(minutes: 11)),
+        updatedAt: now.subtract(const Duration(minutes: 2)),
+        acceptedAt: now.subtract(const Duration(minutes: 9)),
+        readyAt: now.subtract(const Duration(minutes: 2)),
+        pickupCode: 'PK-248',
         riderName: 'Tran Duc Long',
         riderPlate: '59-X3 204.88',
+        riderPhone: '0908 *** 294',
+        riderVehicle: 'Yamaha Exciter',
+        riderEtaMinutes: 1,
       ),
       Order(
         id: 'ORD-1023',
@@ -447,17 +537,30 @@ class DemoBackendEngine {
         customerPhone: '0945 *** 510',
         items: const [
           OrderItem(
-            name: 'Ga Nuong Mat Ong + Xoi',
-            quantity: 1,
-            unitPriceVnd: 195000,
+            name: 'Com Tam Suon Bi Cha',
+            quantity: 2,
+            unitPriceVnd: 58000,
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Ca Phe Sua Da',
+            quantity: 2,
+            unitPriceVnd: 32000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 195000,
+        totalAmountVnd: 180000,
         status: OrderStatus.ready,
-        createdAt: now.subtract(const Duration(minutes: 19)),
+        createdAt: now.subtract(const Duration(minutes: 17)),
         updatedAt: now.subtract(const Duration(minutes: 4)),
+        acceptedAt: now.subtract(const Duration(minutes: 14)),
+        readyAt: now.subtract(const Duration(minutes: 4)),
+        pickupCode: 'PK-237',
         riderName: 'Le Minh Tri',
         riderPlate: '59-T2 991.50',
+        riderPhone: '0933 *** 741',
+        riderVehicle: 'Honda Vision',
+        riderEtaMinutes: 2,
       ),
       Order(
         id: 'ORD-1022',
@@ -465,17 +568,24 @@ class DemoBackendEngine {
         customerPhone: '0919 *** 224',
         items: const [
           OrderItem(
-            name: 'Mi Quang Tom Thit',
+            name: 'Pho Bo Tai Nam',
             quantity: 2,
-            unitPriceVnd: 62000,
+            unitPriceVnd: 72000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 124000,
+        totalAmountVnd: 144000,
         status: OrderStatus.completed,
-        createdAt: now.subtract(const Duration(minutes: 28)),
-        updatedAt: now.subtract(const Duration(minutes: 12)),
+        createdAt: now.subtract(const Duration(minutes: 32)),
+        updatedAt: now.subtract(const Duration(minutes: 20)),
+        acceptedAt: now.subtract(const Duration(minutes: 30)),
+        readyAt: now.subtract(const Duration(minutes: 22)),
+        completedAt: now.subtract(const Duration(minutes: 20)),
+        pickupCode: 'PK-224',
         riderName: 'Phan Thanh Tung',
         riderPlate: '59-D1 615.32',
+        riderPhone: '0972 *** 118',
+        riderVehicle: 'Honda AirBlade',
       ),
       Order(
         id: 'ORD-1021',
@@ -483,22 +593,30 @@ class DemoBackendEngine {
         customerPhone: '0966 *** 771',
         items: const [
           OrderItem(
-            name: 'Hu Tieu Nam Vang Kho',
+            name: 'Com Tam Suon Bi Cha',
             quantity: 2,
-            unitPriceVnd: 65000,
+            unitPriceVnd: 58000,
+            isPrepped: true,
           ),
           OrderItem(
-            name: 'Sua Dau Nanh Lanh',
+            name: 'Ca Phe Sua Da',
             quantity: 2,
-            unitPriceVnd: 18000,
+            unitPriceVnd: 32000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 166000,
+        totalAmountVnd: 180000,
         status: OrderStatus.completed,
-        createdAt: now.subtract(const Duration(minutes: 34)),
-        updatedAt: now.subtract(const Duration(minutes: 18)),
+        createdAt: now.subtract(const Duration(minutes: 72)),
+        updatedAt: now.subtract(const Duration(minutes: 58)),
+        acceptedAt: now.subtract(const Duration(minutes: 70)),
+        readyAt: now.subtract(const Duration(minutes: 61)),
+        completedAt: now.subtract(const Duration(minutes: 58)),
+        pickupCode: 'PK-219',
         riderName: 'Vo Hoang Phuc',
         riderPlate: '59-B1 108.44',
+        riderPhone: '0901 *** 663',
+        riderVehicle: 'Honda Wave Alpha',
       ),
       Order(
         id: 'ORD-1020',
@@ -509,17 +627,25 @@ class DemoBackendEngine {
             name: 'Goi Cuon Tom Thit (4 pcs)',
             quantity: 2,
             unitPriceVnd: 48000,
+            isPrepped: true,
           ),
           OrderItem(
-            name: 'Cha Gio Re Gion',
-            quantity: 1,
-            unitPriceVnd: 52000,
+            name: 'Tra Sua O Long Nhai',
+            quantity: 2,
+            unitPriceVnd: 45000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 148000,
+        totalAmountVnd: 186000,
         status: OrderStatus.completed,
-        createdAt: now.subtract(const Duration(minutes: 42)),
-        updatedAt: now.subtract(const Duration(minutes: 25)),
+        createdAt: now.subtract(const Duration(minutes: 88)),
+        updatedAt: now.subtract(const Duration(minutes: 75)),
+        acceptedAt: now.subtract(const Duration(minutes: 86)),
+        readyAt: now.subtract(const Duration(minutes: 78)),
+        completedAt: now.subtract(const Duration(minutes: 75)),
+        pickupCode: 'PK-203',
+        riderName: 'Doan Quoc Huy',
+        riderPlate: '59-L1 392.11',
       ),
       Order(
         id: 'ORD-1019',
@@ -534,8 +660,9 @@ class DemoBackendEngine {
         ],
         totalAmountVnd: 285000,
         status: OrderStatus.rejected,
-        createdAt: now.subtract(const Duration(minutes: 48)),
-        updatedAt: now.subtract(const Duration(minutes: 45)),
+        createdAt: now.subtract(const Duration(minutes: 96)),
+        updatedAt: now.subtract(const Duration(minutes: 93)),
+        pickupCode: 'PK-194',
         rejectionReason: 'Fresh squid out of stock for evening shift.',
       ),
       Order(
@@ -544,15 +671,28 @@ class DemoBackendEngine {
         customerPhone: '0971 *** 064',
         items: const [
           OrderItem(
-            name: 'Matcha Latte Oatmilk',
+            name: 'Pho Bo Tai Nam',
+            quantity: 3,
+            unitPriceVnd: 72000,
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Ca Phe Sua Da',
             quantity: 2,
-            unitPriceVnd: 55000,
+            unitPriceVnd: 32000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 110000,
+        totalAmountVnd: 280000,
         status: OrderStatus.completed,
-        createdAt: now.subtract(const Duration(minutes: 56)),
-        updatedAt: now.subtract(const Duration(minutes: 39)),
+        createdAt: now.subtract(const Duration(minutes: 132)),
+        updatedAt: now.subtract(const Duration(minutes: 118)),
+        acceptedAt: now.subtract(const Duration(minutes: 130)),
+        readyAt: now.subtract(const Duration(minutes: 120)),
+        completedAt: now.subtract(const Duration(minutes: 118)),
+        pickupCode: 'PK-188',
+        riderName: 'Nguyen Van Hung',
+        riderPlate: '59-C1 731.04',
       ),
       Order(
         id: 'ORD-1017',
@@ -560,15 +700,86 @@ class DemoBackendEngine {
         customerPhone: '0917 *** 530',
         items: const [
           OrderItem(
-            name: 'Com Ga Xoi Mo',
+            name: 'Bun Bo Hue Gio Heo',
             quantity: 2,
-            unitPriceVnd: 60000,
+            unitPriceVnd: 68000,
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Quay Nong (Set)',
+            quantity: 2,
+            unitPriceVnd: 18000,
+            isPrepped: true,
           ),
         ],
-        totalAmountVnd: 120000,
+        totalAmountVnd: 172000,
         status: OrderStatus.completed,
-        createdAt: now.subtract(const Duration(minutes: 64)),
-        updatedAt: now.subtract(const Duration(minutes: 47)),
+        createdAt: now.subtract(const Duration(minutes: 145)),
+        updatedAt: now.subtract(const Duration(minutes: 131)),
+        acceptedAt: now.subtract(const Duration(minutes: 143)),
+        readyAt: now.subtract(const Duration(minutes: 134)),
+        completedAt: now.subtract(const Duration(minutes: 131)),
+        pickupCode: 'PK-176',
+        riderName: 'Pham Van Tien',
+        riderPlate: '59-P2 482.19',
+      ),
+      Order(
+        id: 'ORD-1016',
+        customerName: 'Huynh Ngoc Mai',
+        customerPhone: '0902 *** 819',
+        items: const [
+          OrderItem(
+            name: 'Com Tam Suon Bi Cha',
+            quantity: 3,
+            unitPriceVnd: 58000,
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Tra Dao Cam Sa',
+            quantity: 2,
+            unitPriceVnd: 38000,
+            isPrepped: true,
+          ),
+        ],
+        totalAmountVnd: 250000,
+        status: OrderStatus.completed,
+        createdAt: now.subtract(const Duration(minutes: 192)),
+        updatedAt: now.subtract(const Duration(minutes: 180)),
+        acceptedAt: now.subtract(const Duration(minutes: 190)),
+        readyAt: now.subtract(const Duration(minutes: 182)),
+        completedAt: now.subtract(const Duration(minutes: 180)),
+        pickupCode: 'PK-162',
+        riderName: 'Tran Duc Long',
+        riderPlate: '59-X3 204.88',
+      ),
+      Order(
+        id: 'ORD-1015',
+        customerName: 'Cao Tuan Anh',
+        customerPhone: '0939 *** 302',
+        items: const [
+          OrderItem(
+            name: 'Banh Mi Chao Dac Biet',
+            quantity: 2,
+            unitPriceVnd: 69000,
+            isPrepped: true,
+          ),
+          OrderItem(
+            name: 'Ca Phe Sua Da',
+            quantity: 1,
+            unitPriceVnd: 32000,
+            isPrepped: true,
+          ),
+        ],
+        totalAmountVnd: 170000,
+        status: OrderStatus.completed,
+        createdAt: now.subtract(const Duration(minutes: 210)),
+        updatedAt: now.subtract(const Duration(minutes: 198)),
+        acceptedAt: now.subtract(const Duration(minutes: 208)),
+        readyAt: now.subtract(const Duration(minutes: 200)),
+        completedAt: now.subtract(const Duration(minutes: 198)),
+        pickupCode: 'PK-151',
+        riderName: 'Le Minh Tri',
+        riderPlate: '59-T2 991.50',
       ),
     ];
   }

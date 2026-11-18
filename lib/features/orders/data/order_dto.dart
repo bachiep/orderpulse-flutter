@@ -8,6 +8,7 @@ class OrderDto {
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       unitPriceVnd: (json['unitPriceVnd'] as num?)?.toInt() ?? 0,
       note: json['note'] as String?,
+      isPrepped: json['isPrepped'] as bool? ?? false,
     );
   }
 
@@ -16,6 +17,7 @@ class OrderDto {
         'quantity': item.quantity,
         'unitPriceVnd': item.unitPriceVnd,
         if (item.note != null) 'note': item.note,
+        if (item.isPrepped) 'isPrepped': true,
       };
 
   static Order fromJson(Map<String, dynamic> json) {
@@ -39,8 +41,21 @@ class OrderDto {
       kitchenNotes: json['kitchenNotes'] as String?,
       riderName: json['riderName'] as String?,
       riderPlate: json['riderPlate'] as String?,
+      riderPhone: json['riderPhone'] as String?,
+      riderVehicle: json['riderVehicle'] as String?,
+      riderEtaMinutes: (json['riderEtaMinutes'] as num?)?.toInt(),
+      pickupCode: json['pickupCode'] as String?,
       rejectionReason: json['rejectionReason'] as String?,
+      targetPrepMinutes: (json['targetPrepMinutes'] as num?)?.toInt() ?? 15,
+      acceptedAt: _parseOptionalDate(json['acceptedAt']),
+      readyAt: _parseOptionalDate(json['readyAt']),
+      completedAt: _parseOptionalDate(json['completedAt']),
     );
+  }
+
+  static DateTime? _parseOptionalDate(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
   }
 
   static Map<String, dynamic> toJson(Order order) => {
@@ -52,11 +67,22 @@ class OrderDto {
         'status': order.status.apiValue,
         'createdAt': order.createdAt.toIso8601String(),
         'updatedAt': order.updatedAt.toIso8601String(),
+        'targetPrepMinutes': order.targetPrepMinutes,
         if (order.kitchenNotes != null) 'kitchenNotes': order.kitchenNotes,
         if (order.riderName != null) 'riderName': order.riderName,
         if (order.riderPlate != null) 'riderPlate': order.riderPlate,
+        if (order.riderPhone != null) 'riderPhone': order.riderPhone,
+        if (order.riderVehicle != null) 'riderVehicle': order.riderVehicle,
+        if (order.riderEtaMinutes != null)
+          'riderEtaMinutes': order.riderEtaMinutes,
+        if (order.pickupCode != null) 'pickupCode': order.pickupCode,
         if (order.rejectionReason != null)
           'rejectionReason': order.rejectionReason,
+        if (order.acceptedAt != null)
+          'acceptedAt': order.acceptedAt!.toIso8601String(),
+        if (order.readyAt != null) 'readyAt': order.readyAt!.toIso8601String(),
+        if (order.completedAt != null)
+          'completedAt': order.completedAt!.toIso8601String(),
       };
 
   static OrderPage pageFromJson(Map<String, dynamic> json) {

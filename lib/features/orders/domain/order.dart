@@ -26,6 +26,11 @@ enum OrderStatus {
         OrderStatus.rejected => 'Rejected',
       };
 
+  bool get isActive =>
+      this == OrderStatus.newOrder ||
+      this == OrderStatus.preparing ||
+      this == OrderStatus.ready;
+
   /// Parses an API status string, defaulting safely to [OrderStatus.newOrder].
   static OrderStatus fromApi(String raw) {
     return switch (raw.trim().toUpperCase()) {
@@ -74,17 +79,31 @@ class OrderItem extends Equatable {
     required this.quantity,
     required this.unitPriceVnd,
     this.note,
+    this.isPrepped = false,
   });
 
   final String name;
   final int quantity;
   final int unitPriceVnd;
   final String? note;
+  final bool isPrepped;
 
   int get lineTotalVnd => quantity * unitPriceVnd;
 
+  OrderItem copyWith({
+    bool? isPrepped,
+  }) {
+    return OrderItem(
+      name: name,
+      quantity: quantity,
+      unitPriceVnd: unitPriceVnd,
+      note: note,
+      isPrepped: isPrepped ?? this.isPrepped,
+    );
+  }
+
   @override
-  List<Object?> get props => [name, quantity, unitPriceVnd, note];
+  List<Object?> get props => [name, quantity, unitPriceVnd, note, isPrepped];
 }
 
 /// Immutable O2O merchant order aggregate.
@@ -101,7 +120,15 @@ class Order extends Equatable {
     this.kitchenNotes,
     this.riderName,
     this.riderPlate,
+    this.riderPhone,
+    this.riderVehicle,
+    this.riderEtaMinutes,
+    this.pickupCode,
     this.rejectionReason,
+    this.targetPrepMinutes = 15,
+    this.acceptedAt,
+    this.readyAt,
+    this.completedAt,
   });
 
   final String id;
@@ -115,23 +142,66 @@ class Order extends Equatable {
   final String? kitchenNotes;
   final String? riderName;
   final String? riderPlate;
+  final String? riderPhone;
+  final String? riderVehicle;
+  final int? riderEtaMinutes;
+  final String? pickupCode;
   final String? rejectionReason;
+  final int targetPrepMinutes;
+  final DateTime? acceptedAt;
+  final DateTime? readyAt;
+  final DateTime? completedAt;
 
   int get totalItemCount =>
       items.fold<int>(0, (sum, item) => sum + item.quantity);
 
+  int get preppedLineCount => items.where((item) => item.isPrepped).length;
+
+  int get totalLineCount => items.length;
+
+  bool get allItemsPrepped =>
+      items.isNotEmpty && items.every((item) => item.isPrepped);
+
+  DateTime get slaDeadline =>
+      createdAt.add(Duration(minutes: targetPrepMinutes));
+
+  String get resolvedPickupCode {
+    if (pickupCode != null && pickupCode!.trim().isNotEmpty) {
+      return pickupCode!;
+    }
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    return 'PK-${digits.isEmpty ? id : digits}';
+  }
+
+  Order toggleItemPrepped(int index, {bool? isPrepped}) {
+    if (index < 0 || index >= items.length) return this;
+    final nextItems = List<OrderItem>.from(items);
+    final current = nextItems[index];
+    nextItems[index] = current.copyWith(isPrepped: isPrepped ?? !current.isPrepped);
+    return copyWith(items: nextItems);
+  }
+
   Order copyWith({
+    List<OrderItem>? items,
     OrderStatus? status,
     DateTime? updatedAt,
     String? riderName,
     String? riderPlate,
+    String? riderPhone,
+    String? riderVehicle,
+    int? riderEtaMinutes,
+    String? pickupCode,
     String? rejectionReason,
+    int? targetPrepMinutes,
+    DateTime? acceptedAt,
+    DateTime? readyAt,
+    DateTime? completedAt,
   }) {
     return Order(
       id: id,
       customerName: customerName,
       customerPhone: customerPhone,
-      items: items,
+      items: items ?? this.items,
       totalAmountVnd: totalAmountVnd,
       status: status ?? this.status,
       createdAt: createdAt,
@@ -139,7 +209,15 @@ class Order extends Equatable {
       kitchenNotes: kitchenNotes,
       riderName: riderName ?? this.riderName,
       riderPlate: riderPlate ?? this.riderPlate,
+      riderPhone: riderPhone ?? this.riderPhone,
+      riderVehicle: riderVehicle ?? this.riderVehicle,
+      riderEtaMinutes: riderEtaMinutes ?? this.riderEtaMinutes,
+      pickupCode: pickupCode ?? this.pickupCode,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      targetPrepMinutes: targetPrepMinutes ?? this.targetPrepMinutes,
+      acceptedAt: acceptedAt ?? this.acceptedAt,
+      readyAt: readyAt ?? this.readyAt,
+      completedAt: completedAt ?? this.completedAt,
     );
   }
 
@@ -156,7 +234,15 @@ class Order extends Equatable {
         kitchenNotes,
         riderName,
         riderPlate,
+        riderPhone,
+        riderVehicle,
+        riderEtaMinutes,
+        pickupCode,
         rejectionReason,
+        targetPrepMinutes,
+        acceptedAt,
+        readyAt,
+        completedAt,
       ];
 }
 

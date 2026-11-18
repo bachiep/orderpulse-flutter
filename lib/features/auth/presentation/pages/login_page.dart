@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:orderpulse_flutter/core/config/app_config.dart';
 import 'package:orderpulse_flutter/core/di/injection.dart';
+import 'package:orderpulse_flutter/core/theme/app_theme.dart';
+import 'package:orderpulse_flutter/core/theme/theme_cubit.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
 
 /// Merchant login screen offering Live Server authentication and 1-Tap Demo Merchant entry.
@@ -54,8 +56,9 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final kds = KdsColors.of(context);
     final textTheme = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return Scaffold(
@@ -69,23 +72,49 @@ class _LoginPageState extends State<LoginPage> {
             };
 
             return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20, 24, 20, 24 + bottomInset),
+              padding: EdgeInsets.fromLTRB(20, 14, 20, 24 + bottomInset),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 440),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(
-                        Icons.storefront_rounded,
-                        size: 52,
-                        color: colorScheme.primary,
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: IconButton(
+                          tooltip: 'Toggle theme',
+                          onPressed: () => context.read<ThemeCubit>().toggle(),
+                          icon: Icon(
+                            isDark
+                                ? Icons.light_mode_outlined
+                                : Icons.dark_mode_outlined,
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 12),
+                      Center(
+                        child: Container(
+                          width: 68,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            color: kds.card,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: kds.brandAccent.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.storefront_rounded,
+                            size: 38,
+                            color: kds.brandAccent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       Text(
                         'OrderPulse Merchant',
                         style: textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          color: kds.textPrimary,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -93,7 +122,7 @@ class _LoginPageState extends State<LoginPage> {
                       Text(
                         'Realtime O2O Order Board & Kitchen Dispatch Monitor',
                         style: textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                          color: kds.textSecondary,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -102,21 +131,24 @@ class _LoginPageState extends State<LoginPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: colorScheme.errorContainer,
+                            color: kds.statusRejectedContainer,
                             borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: kds.statusRejected.withValues(alpha: 0.7),
+                            ),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.error_outline_rounded,
-                                color: colorScheme.onErrorContainer,
+                                color: kds.onStatusRejectedContainer,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   errorMessage,
                                   style: textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onErrorContainer,
+                                    color: kds.onStatusRejectedContainer,
                                   ),
                                 ),
                               ),
@@ -126,7 +158,12 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                       ],
                       Card(
-                        color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: kds.brandAccent.withValues(alpha: 0.55),
+                          ),
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -136,7 +173,7 @@ class _LoginPageState extends State<LoginPage> {
                                 children: [
                                   Icon(
                                     Icons.bolt_rounded,
-                                    color: colorScheme.primary,
+                                    color: kds.statusNew,
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
@@ -144,6 +181,7 @@ class _LoginPageState extends State<LoginPage> {
                                       'Standalone Interactive Demo',
                                       style: textTheme.titleSmall?.copyWith(
                                         fontWeight: FontWeight.w700,
+                                        color: kds.textPrimary,
                                       ),
                                     ),
                                   ),
@@ -151,13 +189,16 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Test live order dispatch, WebSocket reconnect backoff, and queued 401 token refresh without running a local backend.',
+                                'Test live order dispatch, SLA countdowns, WebSocket reconnect backoff, and queued 401 token refresh without a local backend.',
                                 style: textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
+                                  color: kds.textSecondary,
                                 ),
                               ),
                               const SizedBox(height: 14),
                               FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size(0, 48),
+                                ),
                                 onPressed: isBusy
                                     ? null
                                     : () => context.read<AuthBloc>().add(
@@ -187,7 +228,7 @@ class _LoginPageState extends State<LoginPage> {
                             child: Text(
                               'OR LIVE SERVER',
                               style: textTheme.labelSmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
+                                color: kds.textSecondary,
                                 letterSpacing: 0.8,
                               ),
                             ),
@@ -228,7 +269,8 @@ class _LoginPageState extends State<LoginPage> {
                                     suffixIcon: IconButton(
                                       tooltip: 'Toggle password visibility',
                                       onPressed: () => setState(
-                                        () => _obscurePassword = !_obscurePassword,
+                                        () => _obscurePassword =
+                                            !_obscurePassword,
                                       ),
                                       icon: Icon(
                                         _obscurePassword
@@ -249,7 +291,8 @@ class _LoginPageState extends State<LoginPage> {
                                   alignment: Alignment.centerLeft,
                                   child: TextButton.icon(
                                     onPressed: () => setState(
-                                      () => _showServerSettings = !_showServerSettings,
+                                      () => _showServerSettings =
+                                          !_showServerSettings,
                                     ),
                                     icon: Icon(
                                       _showServerSettings
@@ -278,8 +321,11 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 14),
                                 OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(0, 48),
+                                  ),
                                   onPressed: isBusy ? null : _submitLiveLogin,
                                   icon: const Icon(Icons.login_rounded),
                                   label: const Text('Sign In to Live Server'),

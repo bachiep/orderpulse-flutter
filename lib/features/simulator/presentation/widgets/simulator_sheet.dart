@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:orderpulse_flutter/core/theme/app_theme.dart';
 import 'package:orderpulse_flutter/features/realtime/presentation/bloc/order_stream_bloc.dart';
 import 'package:orderpulse_flutter/features/simulator/presentation/bloc/simulator_cubit.dart';
 
@@ -28,7 +29,7 @@ class SimulatorSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final kds = KdsColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
@@ -43,13 +44,14 @@ class SimulatorSheet extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.science_outlined, color: colorScheme.primary),
+                    Icon(Icons.science_outlined, color: kds.brandAccent),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Network & Stream Simulator',
                         style: textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
+                          color: kds.textPrimary,
                         ),
                       ),
                     ),
@@ -63,7 +65,7 @@ class SimulatorSheet extends StatelessWidget {
                 Text(
                   'Trigger real in-memory backend and socket edge cases running through Dio QueuedInterceptorsWrapper and OrderStreamBloc.',
                   style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                    color: kds.textSecondary,
                   ),
                 ),
                 if (state.isRunning) ...[
@@ -72,6 +74,9 @@ class SimulatorSheet extends StatelessWidget {
                 ],
                 const SizedBox(height: 16),
                 FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                  ),
                   onPressed: state.isRunning
                       ? null
                       : () => context.read<SimulatorCubit>().pushIncomingOrder(),
@@ -80,6 +85,9 @@ class SimulatorSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                  ),
                   onPressed: state.isRunning
                       ? null
                       : () => context
@@ -92,6 +100,9 @@ class SimulatorSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                  ),
                   onPressed: state.isRunning
                       ? null
                       : () => context
@@ -109,7 +120,9 @@ class SimulatorSheet extends StatelessWidget {
                   ),
                   value: state.isSocketHeldOffline,
                   onChanged: (value) {
-                    context.read<SimulatorCubit>().toggleHoldSocketOffline(value);
+                    context
+                        .read<SimulatorCubit>()
+                        .toggleHoldSocketOffline(value);
                     if (!value) {
                       context
                           .read<OrderStreamBloc>()
@@ -119,7 +132,11 @@ class SimulatorSheet extends StatelessWidget {
                 ),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: colorScheme.error,
+                    minimumSize: const Size(0, 48),
+                    foregroundColor: kds.statusRejected,
+                    side: BorderSide(
+                      color: kds.statusRejected.withValues(alpha: 0.6),
+                    ),
                   ),
                   onPressed: state.isRunning
                       ? null
@@ -134,32 +151,44 @@ class SimulatorSheet extends StatelessWidget {
                 ),
                 if (state.lastRefreshReport != null) ...[
                   const SizedBox(height: 14),
-                  Card(
-                    color: colorScheme.primaryContainer.withValues(alpha: 0.45),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Last 401 Queue Verification',
-                            style: textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Parallel requests: ${state.lastRefreshReport!.succeededCount}/${state.lastRefreshReport!.requestCount} returned 200 OK',
-                            style: textTheme.bodySmall,
-                          ),
-                          Text(
-                            'Refresh calls executed: ${state.lastRefreshReport!.refreshCallsExecuted} (single-flight verified)',
-                            style: textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: kds.statusReadyContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: kds.statusReady.withValues(alpha: 0.65),
                       ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Last 401 Queue Verification',
+                          style: textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: kds.onStatusReadyContainer,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Parallel requests: ${state.lastRefreshReport!.succeededCount}/${state.lastRefreshReport!.requestCount} returned 200 OK',
+                          style: tabularStyle(
+                            textTheme.bodySmall?.copyWith(
+                              color: kds.onStatusReadyContainer,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Refresh calls executed: ${state.lastRefreshReport!.refreshCallsExecuted} (single-flight verified)',
+                          style: tabularStyle(
+                            textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: kds.onStatusReadyContainer,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -169,14 +198,16 @@ class SimulatorSheet extends StatelessWidget {
                     'Live Intercept & Stream Trace',
                     style: textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w700,
+                      color: kds.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest,
+                      color: kds.cardElevated,
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: kds.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,7 +218,11 @@ class SimulatorSheet extends StatelessWidget {
                               padding: const EdgeInsets.only(bottom: 4),
                               child: Text(
                                 '• $entry',
-                                style: textTheme.bodySmall,
+                                style: tabularStyle(
+                                  textTheme.bodySmall?.copyWith(
+                                    color: kds.textSecondary,
+                                  ),
+                                ),
                               ),
                             ),
                           )
