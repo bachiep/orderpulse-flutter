@@ -9,6 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:orderpulse_flutter/app.dart';
 import 'package:orderpulse_flutter/core/di/injection.dart';
 import 'package:orderpulse_flutter/core/time/app_clock.dart';
+import 'package:orderpulse_flutter/features/dispatch/presentation/pages/order_detail_page.dart';
+import 'package:orderpulse_flutter/features/insights/presentation/widgets/shift_insights_view.dart';
+import 'package:orderpulse_flutter/features/simulator/presentation/widgets/simulator_sheet.dart';
 
 const bool _writeScreenshots = bool.fromEnvironment(
   'WRITE_SCREENSHOTS',
@@ -169,14 +172,34 @@ void main() {
         await tester.pump();
         await tester.pumpAndSettle();
 
+        final detailScrollable = find
+            .descendant(
+              of: find.byType(OrderDetailPage),
+              matching: find.byType(Scrollable),
+            )
+            .first;
         expect(find.text('Order Lifecycle'), findsOneWidget);
+        if (find.text('Kitchen Prep Checklist').evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.text('Kitchen Prep Checklist'),
+            160,
+            scrollable: detailScrollable,
+          );
+        }
         expect(find.text('Kitchen Prep Checklist'), findsOneWidget);
-        expect(find.text('Courier & Delivery Dispatch'), findsOneWidget);
         await _capturePng(
           tester,
           boundaryKey,
           'docs/screenshots/03-order-detail-dispatch.png',
         );
+        if (find.text('Courier & Delivery Dispatch').evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.text('Courier & Delivery Dispatch'),
+            160,
+            scrollable: detailScrollable,
+          );
+        }
+        expect(find.text('Courier & Delivery Dispatch'), findsOneWidget);
 
         // Navigate back to Order Board
         await tester.pageBack();
@@ -187,15 +210,35 @@ void main() {
         await tester.pump();
         await tester.pumpAndSettle();
 
+        final insightsScrollable = find
+            .descendant(
+              of: find.byType(ShiftInsightsView),
+              matching: find.byType(Scrollable),
+            )
+            .first;
         expect(find.text('Completed Orders'), findsOneWidget);
         expect(find.text('Hourly Order Volume'), findsOneWidget);
-        expect(find.text('Status Distribution'), findsOneWidget);
-        expect(find.text('Top 5 Dishes'), findsOneWidget);
         await _capturePng(
           tester,
           boundaryKey,
           'docs/screenshots/04-shift-insights-analytics.png',
         );
+        if (find.text('Status Distribution').evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.text('Status Distribution'),
+            160,
+            scrollable: insightsScrollable,
+          );
+        }
+        expect(find.text('Status Distribution'), findsOneWidget);
+        if (find.text('Top 5 Dishes').evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.text('Top 5 Dishes'),
+            160,
+            scrollable: insightsScrollable,
+          );
+        }
+        expect(find.text('Top 5 Dishes'), findsOneWidget);
 
         // Switch back to Live Queue & open Simulator Sheet with live 401 test
         await tester.tap(find.text('Live Queue'));
@@ -210,6 +253,18 @@ void main() {
         await tester.pump();
         await tester.pumpAndSettle();
 
+        if (find.text('Last 401 Queue Verification').evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            find.text('Last 401 Queue Verification'),
+            160,
+            scrollable: find
+                .descendant(
+                  of: find.byType(SimulatorSheet),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+        }
         expect(find.text('Last 401 Queue Verification'), findsOneWidget);
         await _capturePng(
           tester,
