@@ -66,6 +66,26 @@ Future<bool> _loadLocalMaterialFontsIfPresent() async {
     }
     await loader.load();
   }
+
+  final monoLoader = FontLoader('monospace');
+  var loadedSystemMono = false;
+  for (final monoPath in const [
+    r'C:\Windows\Fonts\consola.ttf',
+    r'C:\Windows\Fonts\consolab.ttf',
+  ]) {
+    final monoFile = File(monoPath);
+    if (monoFile.existsSync()) {
+      final bytes = monoFile.readAsBytesSync();
+      monoLoader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+      loadedSystemMono = true;
+    }
+  }
+  if (!loadedSystemMono) {
+    for (final bytes in loadedBytes) {
+      monoLoader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+    }
+  }
+  await monoLoader.load();
   return true;
 }
 
@@ -91,7 +111,7 @@ Future<void> _capturePng(
 
 void main() {
   testWidgets(
-    'Renders v2.0 393x852 @2x screens and verifies zero layout regressions',
+    'Renders v2.1 393x852 @2x screens and verifies zero layout regressions',
     (tester) async {
       final boundaryKey = GlobalKey();
       final fixedClock = FixedClock(DateTime.utc(2026, 11, 18, 12, 20));
@@ -125,7 +145,7 @@ void main() {
           'docs/screenshots/01-login-demo-entry.png',
         );
 
-        // 2. Live Order Board (Tab 1: Live Queue)
+        // 2. Live Order Board (Tab 1: Live Queue with SLA Urgency First active)
         await tester.tap(find.text('Try Demo Merchant'));
         await tester.pump();
         await tester.pumpAndSettle();
@@ -133,6 +153,11 @@ void main() {
         expect(find.text('OrderPulse'), findsOneWidget);
         expect(find.text('District 1 • Demo Kitchen'), findsOneWidget);
         expect(find.text('ORD-1028'), findsOneWidget);
+        expect(find.widgetWithText(FilterChip, 'Urgent SLA'), findsOneWidget);
+        expect(
+          find.widgetWithText(FilterChip, 'SLA Urgency First'),
+          findsOneWidget,
+        );
 
         // Verify AppBar reserves generous space and does not truncate with Roboto loaded.
         final subtitleFinder = find.text('District 1 • Demo Kitchen');
@@ -151,23 +176,19 @@ void main() {
           expect(subtitlePainter.didExceedMaxLines, isFalse);
         }
 
+        // Activate SLA Urgency First so overdue tickets (+4m OVERDUE) rise to the top.
+        await tester.tap(find.widgetWithText(FilterChip, 'SLA Urgency First'));
+        await tester.pumpAndSettle();
+        expect(find.text('ORD-1025'), findsOneWidget);
+        expect(find.text('+4m OVERDUE'), findsOneWidget);
+
         await _capturePng(
           tester,
           boundaryKey,
           'docs/screenshots/02-order-board-live.png',
         );
 
-        // 3. Order Detail Workspace (ORD-1025 shows SLA overdue, allergen note, stepper, checklist, rider)
-        final verticalList = find.byWidgetPredicate(
-          (widget) =>
-              widget is Scrollable && widget.axisDirection == AxisDirection.down,
-        );
-        await tester.scrollUntilVisible(
-          find.text('Vo Tuan Kiet'),
-          140,
-          scrollable: verticalList.first,
-        );
-        await tester.pumpAndSettle();
+        // 3. Order Detail Workspace (ORD-1025 shows SLA overdue, Kitchen Slip, stepper, checklist, rider)
         await tester.tap(find.text('Vo Tuan Kiet'));
         await tester.pump();
         await tester.pumpAndSettle();
@@ -179,6 +200,7 @@ void main() {
             )
             .first;
         expect(find.text('Order Lifecycle'), findsOneWidget);
+        expect(find.text('Kitchen Slip'), findsOneWidget);
         if (find.text('Kitchen Prep Checklist').evaluate().isEmpty) {
           await tester.scrollUntilVisible(
             find.text('Kitchen Prep Checklist'),
@@ -200,6 +222,24 @@ void main() {
           );
         }
         expect(find.text('Courier & Delivery Dispatch'), findsOneWidget);
+
+        // Open 80mm Thermal Kitchen Slip modal preview and capture screenshot
+        await tester.scrollUntilVisible(
+          find.text('Kitchen Slip'),
+          -200,
+          scrollable: detailScrollable,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Kitchen Slip'));
+        await tester.pumpAndSettle();
+        expect(find.text('80mm Thermal Kitchen Slip'), findsOneWidget);
+        await _capturePng(
+          tester,
+          boundaryKey,
+          'docs/screenshots/06-kitchen-slip-preview.png',
+        );
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
 
         // Navigate back to Order Board
         await tester.pageBack();

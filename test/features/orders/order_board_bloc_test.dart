@@ -3,14 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:orderpulse_flutter/core/error/failures.dart';
 import 'package:orderpulse_flutter/core/result/result.dart';
+import 'package:orderpulse_flutter/core/time/app_clock.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
 
 class _MockOrderRepository extends Mock implements OrderRepository {}
 
-Order _makeOrder(String id, {OrderStatus status = OrderStatus.newOrder}) {
-  final ts = DateTime.utc(2026, 11, 18, 8, 0);
+Order _makeOrder(
+  String id, {
+  OrderStatus status = OrderStatus.newOrder,
+  DateTime? createdAt,
+}) {
+  final ts = createdAt ?? DateTime.utc(2026, 11, 18, 8, 0);
   return Order(
     id: id,
     customerName: 'Customer $id',
@@ -179,6 +184,98 @@ void main() {
           filter: OrderFilterTab.all,
           searchQuery: '',
           stats: sampleStats,
+        ),
+      ],
+    );
+
+    final fixedNow = DateTime.utc(2026, 11, 18, 8, 20);
+    final healthyOrder = _makeOrder(
+      'ORD-HEALTHY',
+      createdAt: fixedNow.subtract(const Duration(minutes: 2)),
+    );
+    final overdueOrder = _makeOrder(
+      'ORD-OVERDUE',
+      status: OrderStatus.preparing,
+      createdAt: fixedNow.subtract(const Duration(minutes: 19)),
+    );
+
+    blocTest<OrderBoardBloc, OrderBoardState>(
+      'filters Urgent SLA orders and sorts by SLA urgency first without refetching',
+      build: () {
+        when(
+          () => repository.fetchOrders(
+            status: any(named: 'status'),
+            query: any(named: 'query'),
+            page: 1,
+            pageSize: 8,
+          ),
+        ).thenAnswer(
+          (_) async => Success(
+            OrderPage(
+              items: [healthyOrder, overdueOrder],
+              page: 1,
+              pageSize: 8,
+              hasMore: false,
+              totalCount: 2,
+            ),
+          ),
+        );
+        return OrderBoardBloc(
+          orderRepository: repository,
+          clock: FixedClock(fixedNow),
+        );
+      },
+      act: (bloc) async {
+        bloc.add(const OrderBoardLoadRequested());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OrderBoardSortModeChanged(OrderSortMode.slaUrgencyFirst));
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OrderBoardUrgentFilterToggled());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OrderBoardUrgentFilterToggled());
+      },
+      expect: () => [
+        const OrderBoardLoading(),
+        OrderBoardLoaded(
+          orders: [healthyOrder, overdueOrder],
+          stats: sampleStats,
+          filter: OrderFilterTab.all,
+          searchQuery: '',
+          page: 1,
+          hasMore: false,
+          totalCount: 2,
+        ),
+        OrderBoardLoaded(
+          orders: [overdueOrder, healthyOrder],
+          stats: sampleStats,
+          filter: OrderFilterTab.all,
+          searchQuery: '',
+          sortMode: OrderSortMode.slaUrgencyFirst,
+          page: 1,
+          hasMore: false,
+          totalCount: 2,
+        ),
+        OrderBoardLoaded(
+          orders: [overdueOrder],
+          stats: sampleStats,
+          filter: OrderFilterTab.all,
+          searchQuery: '',
+          urgentOnly: true,
+          sortMode: OrderSortMode.slaUrgencyFirst,
+          page: 1,
+          hasMore: false,
+          totalCount: 2,
+        ),
+        OrderBoardLoaded(
+          orders: [overdueOrder, healthyOrder],
+          stats: sampleStats,
+          filter: OrderFilterTab.all,
+          searchQuery: '',
+          urgentOnly: false,
+          sortMode: OrderSortMode.slaUrgencyFirst,
+          page: 1,
+          hasMore: false,
+          totalCount: 2,
         ),
       ],
     );

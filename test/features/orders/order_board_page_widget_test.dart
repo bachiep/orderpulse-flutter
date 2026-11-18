@@ -354,5 +354,62 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+
+    testWidgets(
+      'dispatches Urgent SLA filter and SLA Urgency First sort chips cleanly on 320px width',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 760);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        when(() => boardBloc.state).thenReturn(
+          OrderBoardLoaded(
+            orders: [sampleOrder],
+            stats: const MerchantShiftStats(
+              activeCount: 1,
+              completedToday: 0,
+              revenueTodayVnd: 0,
+              avgPrepMinutes: 0,
+            ),
+            filter: OrderFilterTab.all,
+            searchQuery: '',
+            page: 1,
+            hasMore: false,
+            totalCount: 1,
+          ),
+        );
+
+        await tester.pumpWidget(wrapBoard(width: 320));
+        await tester.pumpAndSettle();
+
+        final urgentChip = find.widgetWithText(FilterChip, 'Urgent SLA');
+        final sortChip = find.widgetWithText(FilterChip, 'SLA Urgency First');
+        expect(urgentChip, findsOneWidget);
+        expect(sortChip, findsOneWidget);
+
+        await tester.tap(urgentChip);
+        await tester.pump();
+        verify(() => boardBloc.add(const OrderBoardUrgentFilterToggled()))
+            .called(1);
+
+        final horizontalScrollables = find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.right,
+        );
+        await tester.drag(horizontalScrollables.last, const Offset(-120, 0));
+        await tester.pumpAndSettle();
+        await tester.tap(sortChip);
+        await tester.pump();
+        verify(
+          () => boardBloc.add(
+            const OrderBoardSortModeChanged(OrderSortMode.slaUrgencyFirst),
+          ),
+        ).called(1);
+
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

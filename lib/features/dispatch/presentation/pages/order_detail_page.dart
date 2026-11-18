@@ -10,7 +10,9 @@ import 'package:orderpulse_flutter/core/widgets/state_views.dart';
 import 'package:orderpulse_flutter/core/widgets/status_badge.dart';
 import 'package:orderpulse_flutter/features/dispatch/domain/order_state_machine.dart';
 import 'package:orderpulse_flutter/features/dispatch/presentation/bloc/order_action_bloc.dart';
+import 'package:orderpulse_flutter/features/dispatch/presentation/widgets/kitchen_slip_sheet.dart';
 import 'package:orderpulse_flutter/features/dispatch/presentation/widgets/reject_order_dialog.dart';
+import 'package:orderpulse_flutter/features/dispatch/presentation/widgets/unchecked_prep_guard_dialog.dart';
 import 'package:orderpulse_flutter/features/insights/presentation/bloc/shift_insights_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart';
@@ -218,6 +220,17 @@ class _OrderDetailViewState extends State<OrderDetailView> {
         );
   }
 
+  Future<void> _handleMarkReady(BuildContext context) async {
+    if (_currentOrder.items.isNotEmpty && !_currentOrder.allItemsPrepped) {
+      final confirmed = await UncheckedPrepGuardDialog.show(
+        context,
+        _currentOrder,
+      );
+      if (!confirmed || !context.mounted) return;
+    }
+    _dispatch(context, OrderStatus.ready);
+  }
+
   void _dispatch(BuildContext context, OrderStatus targetStatus) {
     context.read<OrderActionBloc>().add(
           OrderTransitionRequested(
@@ -309,6 +322,11 @@ class _OrderDetailViewState extends State<OrderDetailView> {
                 _CustomerTicketHeaderCard(
                   order: _currentOrder,
                   now: now,
+                  onShowKitchenSlip: () => KitchenSlipSheet.show(
+                    context,
+                    order: _currentOrder,
+                    now: now,
+                  ),
                 ),
                 if (_currentOrder.kitchenNotes != null &&
                     _currentOrder.kitchenNotes!.trim().isNotEmpty) ...[
@@ -419,7 +437,7 @@ class _OrderDetailViewState extends State<OrderDetailView> {
                           onPressed: !isBusy &&
                                   OrderStateMachine.canMarkReady(
                                       _currentOrder.status)
-                              ? () => _dispatch(context, OrderStatus.ready)
+                              ? () => _handleMarkReady(context)
                               : null,
                           icon: const Icon(
                             Icons.inventory_2_outlined,
@@ -475,10 +493,12 @@ class _CustomerTicketHeaderCard extends StatelessWidget {
   const _CustomerTicketHeaderCard({
     required this.order,
     required this.now,
+    required this.onShowKitchenSlip,
   });
 
   final Order order;
   final DateTime now;
+  final VoidCallback onShowKitchenSlip;
 
   @override
   Widget build(BuildContext context) {
@@ -488,65 +508,103 @@ class _CustomerTicketHeaderCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: kds.cardElevated,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: kds.border),
-              ),
-              child: Icon(
-                Icons.person_outline_rounded,
-                color: kds.brandAccent,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    order.customerName,
-                    style: textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: kds.textPrimary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    order.customerPhone.isNotEmpty
-                        ? '${order.customerPhone} • Placed ${formatClockTime(order.createdAt)}'
-                        : 'Placed ${formatClockTime(order.createdAt)}',
-                    style: tabularStyle(
-                      textTheme.bodySmall?.copyWith(color: kds.textSecondary),
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Row(
               children: [
-                Text(
-                  formatElapsedSince(order.createdAt, now),
-                  style: tabularStyle(
-                    textTheme.labelMedium?.copyWith(
-                      color: kds.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: kds.cardElevated,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: kds.border),
+                  ),
+                  child: Icon(
+                    Icons.person_outline_rounded,
+                    color: kds.brandAccent,
                   ),
                 ),
-                Text(
-                  'SLA ${order.targetPrepMinutes}m',
-                  style: tabularStyle(
-                    textTheme.labelSmall?.copyWith(color: kds.textSecondary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        order.customerName,
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: kds.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        order.customerPhone.isNotEmpty
+                            ? '${order.customerPhone} • Placed ${formatClockTime(order.createdAt)}'
+                            : 'Placed ${formatClockTime(order.createdAt)}',
+                        style: tabularStyle(
+                          textTheme.bodySmall?.copyWith(color: kds.textSecondary),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      formatElapsedSince(order.createdAt, now),
+                      style: tabularStyle(
+                        textTheme.labelMedium?.copyWith(
+                          color: kds.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'SLA ${order.targetPrepMinutes}m',
+                      style: tabularStyle(
+                        textTheme.labelSmall?.copyWith(color: kds.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Ticket ${order.resolvedPickupCode} • ${order.totalItemCount} item(s)',
+                    style: tabularStyle(
+                      textTheme.labelMedium?.copyWith(
+                        color: kds.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    side: BorderSide(color: kds.brandAccent.withValues(alpha: 0.65)),
+                    foregroundColor: kds.brandAccent,
+                    textStyle: textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: onShowKitchenSlip,
+                  icon: const Icon(Icons.receipt_long, size: 16),
+                  label: const Text('Kitchen Slip'),
                 ),
               ],
             ),

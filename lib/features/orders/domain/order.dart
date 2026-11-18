@@ -72,6 +72,17 @@ enum OrderFilterTab {
       };
 }
 
+/// Sort order applied to tickets rendered on the KDS Live Queue board.
+enum OrderSortMode {
+  newestFirst,
+  slaUrgencyFirst;
+
+  String get label => switch (this) {
+        OrderSortMode.newestFirst => 'Newest First',
+        OrderSortMode.slaUrgencyFirst => 'SLA Urgency First',
+      };
+}
+
 /// Individual line item within an order ticket.
 class OrderItem extends Equatable {
   const OrderItem({

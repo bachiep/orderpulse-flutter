@@ -132,7 +132,10 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
           dispose: (bloc) => unawaited(bloc.close()),
         );
         getIt.registerSingleton<OrderBoardBloc>(
-          OrderBoardBloc(orderRepository: getIt<OrderRepository>()),
+          OrderBoardBloc(
+            orderRepository: getIt<OrderRepository>(),
+            clock: _clock,
+          ),
           dispose: (bloc) => unawaited(bloc.close()),
         );
         getIt.registerSingleton<OrderActionBloc>(
