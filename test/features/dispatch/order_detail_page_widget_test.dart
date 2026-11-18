@@ -54,6 +54,7 @@ void main() {
     Order order, {
     double width = 360,
     EdgeInsets viewInsets = EdgeInsets.zero,
+    void Function(int itemIndex, bool isPrepped)? onItemPrepChanged,
   }) {
     return MediaQuery(
       data: MediaQueryData(
@@ -61,10 +62,14 @@ void main() {
         viewInsets: viewInsets,
       ),
       child: MaterialApp(
-        theme: AppTheme.light(),
+        theme: AppTheme.dark(),
         home: BlocProvider<OrderActionBloc>.value(
           value: actionBloc,
-          child: OrderDetailView(order: order, clock: fixedClock),
+          child: OrderDetailView(
+            order: order,
+            clock: fixedClock,
+            onItemPrepChanged: onItemPrepChanged,
+          ),
         ),
       ),
     );
@@ -154,6 +159,81 @@ void main() {
             ),
           ),
         ).called(1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'renders lifecycle stepper, courier dispatch card, and interactive item prep checklist at 393px',
+      (tester) async {
+        tester.view.physicalSize = const Size(393, 852);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final recordedToggles = <(int, bool)>[];
+        final preparingOrder = Order(
+          id: 'ORD-1026',
+          customerName: 'Pham Ngoc Han',
+          customerPhone: '0977 *** 905',
+          items: const [
+            OrderItem(
+              name: 'Banh Mi Chao Dac Biet',
+              quantity: 1,
+              unitPriceVnd: 69000,
+              isPrepped: true,
+            ),
+            OrderItem(
+              name: 'Ca Phe Sua Da',
+              quantity: 2,
+              unitPriceVnd: 32000,
+              isPrepped: false,
+            ),
+          ],
+          totalAmountVnd: 133000,
+          status: OrderStatus.preparing,
+          createdAt: DateTime.utc(2026, 11, 18, 9, 0),
+          updatedAt: DateTime.utc(2026, 11, 18, 9, 4),
+          acceptedAt: DateTime.utc(2026, 11, 18, 9, 2),
+          pickupCode: 'PK-261',
+          kitchenNotes: 'Separate pate and cold cuts.',
+          riderName: 'Nguyen Van Hung',
+          riderPlate: '59-C1 731.04',
+          riderPhone: '0903 *** 812',
+          riderVehicle: 'Honda Wave RSX',
+          riderEtaMinutes: 4,
+        );
+
+        await tester.pumpWidget(
+          buildDetail(
+            preparingOrder,
+            width: 393,
+            onItemPrepChanged: (index, isPrepped) {
+              recordedToggles.add((index, isPrepped));
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Order Lifecycle'), findsOneWidget);
+        expect(find.text('Placed'), findsOneWidget);
+        expect(find.text('Kitchen Accepted'), findsOneWidget);
+        expect(find.text('Ready for Pickup'), findsOneWidget);
+        expect(find.text('Completed'), findsOneWidget);
+        expect(find.text('1/2 prepped'), findsOneWidget);
+        expect(find.text('Courier & Delivery Dispatch'), findsOneWidget);
+        expect(find.text('Nguyen Van Hung'), findsOneWidget);
+        expect(find.text('ETA 4m'), findsOneWidget);
+        expect(find.text('5m left'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Ca Phe Sua Da'));
+        await tester.tap(find.text('Ca Phe Sua Da'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('2/2 prepped'), findsOneWidget);
+        expect(recordedToggles, [(1, true)]);
         expect(tester.takeException(), isNull);
       },
     );

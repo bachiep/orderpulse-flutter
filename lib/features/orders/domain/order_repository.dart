@@ -19,4 +19,10 @@ abstract interface class OrderRepository {
     required OrderStatus targetStatus,
     String? rejectionReason,
   });
+
+  Future<Result<Order>> toggleItemPrepped({
+    required String orderId,
+    required int itemIndex,
+    required bool isPrepped,
+  });
 }

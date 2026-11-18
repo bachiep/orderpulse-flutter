@@ -35,9 +35,9 @@ void main() {
   final fixedClock = FixedClock(DateTime.utc(2026, 11, 18, 9, 0));
 
   const merchant = MerchantProfile(
-    id: 'm1',
-    merchantName: 'OrderPulse Kitchen - Demo',
-    branchName: 'District 1',
+    id: 'merchant-demo-01',
+    merchantName: 'OrderPulse',
+    branchName: 'District 1 • Demo Kitchen',
     email: 'merchant@orderpulse.demo',
   );
 
@@ -79,11 +79,14 @@ void main() {
     await themeCubit.close();
   });
 
-  Widget wrapBoard({double width = 400}) {
+  Widget wrapBoard({
+    double width = 400,
+    List<Order>? shiftOrders,
+  }) {
     return MediaQuery(
-      data: MediaQueryData(size: Size(width, 760)),
+      data: MediaQueryData(size: Size(width, 852)),
       child: MaterialApp(
-        theme: AppTheme.light(),
+        theme: AppTheme.dark(),
         home: MultiBlocProvider(
           providers: [
             BlocProvider<ThemeCubit>.value(value: themeCubit),
@@ -93,7 +96,10 @@ void main() {
             BlocProvider<OrderFilterCubit>.value(value: filterCubit),
             BlocProvider<OrderSearchBloc>.value(value: searchBloc),
           ],
-          child: OrderBoardView(clock: fixedClock),
+          child: OrderBoardView(
+            clock: fixedClock,
+            shiftOrders: shiftOrders,
+          ),
         ),
       ),
     );
@@ -179,5 +185,174 @@ void main() {
       await tester.tap(find.text('Retry'));
       verify(() => boardBloc.add(const OrderBoardLoadRequested())).called(1);
     });
+
+    testWidgets(
+      'renders unclipped 2-line AppBar at 393px with LIVE pill and SLA badges',
+      (tester) async {
+        tester.view.physicalSize = const Size(393, 852);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final urgentOrder = Order(
+          id: 'ORD-1025',
+          customerName: 'Vo Tuan Kiet',
+          customerPhone: '0908 *** 623',
+          items: const [
+            OrderItem(name: 'Bun Bo Hue', quantity: 3, unitPriceVnd: 68000),
+          ],
+          totalAmountVnd: 204000,
+          status: OrderStatus.preparing,
+          createdAt: DateTime.utc(2026, 11, 18, 8, 41), // 19m ago -> +4m OVERDUE
+          updatedAt: DateTime.utc(2026, 11, 18, 8, 45),
+        );
+
+        when(() => boardBloc.state).thenReturn(
+          OrderBoardLoaded(
+            orders: [sampleOrder, urgentOrder],
+            stats: const MerchantShiftStats(
+              activeCount: 2,
+              completedToday: 5,
+              revenueTodayVnd: 800000,
+              avgPrepMinutes: 11.4,
+            ),
+            filter: OrderFilterTab.all,
+            searchQuery: '',
+            page: 1,
+            hasMore: false,
+            totalCount: 2,
+          ),
+        );
+
+        await tester.pumpWidget(wrapBoard(width: 393));
+        await tester.pumpAndSettle();
+
+        expect(find.text('OrderPulse'), findsOneWidget);
+        expect(find.text('District 1 • Demo Kitchen'), findsOneWidget);
+        expect(find.text('LIVE'), findsOneWidget);
+        expect(find.text('10m left'), findsOneWidget);
+        expect(find.text('+4m OVERDUE'), findsOneWidget);
+
+        // Verify the AppBar reserves generous unclipped width for the 2-line subtitle at 393px.
+        final renderBox = tester.renderObject<RenderBox>(
+          find.text('District 1 • Demo Kitchen'),
+        );
+        expect(renderBox.size.width, greaterThanOrEqualTo(180));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'switches to Shift Insights tab and renders KPIs, charts, and Top 5 Dishes cleanly',
+      (tester) async {
+        tester.view.physicalSize = const Size(393, 852);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final completedOrder = Order(
+          id: 'ORD-1022',
+          customerName: 'Bui Khanh Linh',
+          customerPhone: '0919 *** 224',
+          items: const [
+            OrderItem(
+              name: 'Pho Bo Tai Nam',
+              quantity: 3,
+              unitPriceVnd: 72000,
+              isPrepped: true,
+            ),
+          ],
+          totalAmountVnd: 216000,
+          status: OrderStatus.completed,
+          createdAt: DateTime.utc(2026, 11, 18, 7, 30),
+          updatedAt: DateTime.utc(2026, 11, 18, 7, 41),
+          readyAt: DateTime.utc(2026, 11, 18, 7, 40),
+          completedAt: DateTime.utc(2026, 11, 18, 7, 41),
+        );
+
+        when(() => boardBloc.state).thenReturn(
+          OrderBoardLoaded(
+            orders: [sampleOrder, completedOrder],
+            stats: const MerchantShiftStats(
+              activeCount: 1,
+              completedToday: 1,
+              revenueTodayVnd: 216000,
+              avgPrepMinutes: 10.0,
+            ),
+            filter: OrderFilterTab.all,
+            searchQuery: '',
+            page: 1,
+            hasMore: false,
+            totalCount: 2,
+          ),
+        );
+
+        await tester.pumpWidget(
+          wrapBoard(width: 393, shiftOrders: [sampleOrder, completedOrder]),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Shift Insights'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Completed Orders'), findsOneWidget);
+        expect(find.text('Gross Revenue'), findsOneWidget);
+        expect(find.text('Avg Prep Time'), findsOneWidget);
+        expect(find.text('On-Time SLA %'), findsOneWidget);
+        expect(find.text('Hourly Order Volume'), findsOneWidget);
+        expect(find.text('Status Distribution'), findsOneWidget);
+        expect(find.text('Top 5 Dishes'), findsOneWidget);
+        expect(find.text('Pho Bo Tai Nam'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'renders Shift Insights tab cleanly on narrow 320px width without overflow',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 760);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        when(() => boardBloc.state).thenReturn(
+          OrderBoardLoaded(
+            orders: [sampleOrder],
+            stats: const MerchantShiftStats(
+              activeCount: 1,
+              completedToday: 0,
+              revenueTodayVnd: 0,
+              avgPrepMinutes: 0,
+            ),
+            filter: OrderFilterTab.all,
+            searchQuery: '',
+            page: 1,
+            hasMore: false,
+            totalCount: 1,
+          ),
+        );
+
+        await tester.pumpWidget(wrapBoard(width: 320, shiftOrders: [sampleOrder]));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Shift Insights'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Completed Orders'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Top 5 Dishes'),
+          200,
+          scrollable: find.byType(Scrollable).last,
+        );
+        expect(find.text('Top 5 Dishes'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

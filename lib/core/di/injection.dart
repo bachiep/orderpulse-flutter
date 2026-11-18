@@ -12,6 +12,7 @@ import 'package:orderpulse_flutter/features/auth/data/auth_repository_impl.dart'
 import 'package:orderpulse_flutter/features/auth/domain/auth_repository.dart';
 import 'package:orderpulse_flutter/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:orderpulse_flutter/features/dispatch/presentation/bloc/order_action_bloc.dart';
+import 'package:orderpulse_flutter/features/insights/presentation/bloc/shift_insights_cubit.dart';
 import 'package:orderpulse_flutter/features/orders/data/order_repository_impl.dart';
 import 'package:orderpulse_flutter/features/orders/domain/order_repository.dart';
 import 'package:orderpulse_flutter/features/orders/presentation/bloc/order_board_bloc.dart';
@@ -147,6 +148,10 @@ class GetItEnvironmentConfigurator implements EnvironmentConfigurator {
         );
         getIt.registerSingleton<SimulatorCubit>(
           SimulatorCubit(service: getIt<NetworkSimulatorService>()),
+          dispose: (cubit) => unawaited(cubit.close()),
+        );
+        getIt.registerSingleton<ShiftInsightsCubit>(
+          ShiftInsightsCubit(orderRepository: getIt<OrderRepository>()),
           dispose: (cubit) => unawaited(cubit.close()),
         );
       },
