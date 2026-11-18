@@ -535,6 +535,10 @@ class _LiveQueueTab extends StatelessWidget {
           activeCount: activeCount,
           urgentSlaCount: urgentSlaCount,
           readyCount: readyCount,
+          isUrgentFilterActive: boardState.urgentOnly,
+          onUrgentTap: () => context
+              .read<OrderBoardBloc>()
+              .add(const OrderBoardUrgentFilterToggled()),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -570,6 +574,22 @@ class _LiveQueueTab extends StatelessWidget {
           selected: context.watch<OrderFilterCubit>().state,
           onSelected: (tab) => context.read<OrderFilterCubit>().selectTab(tab),
         ),
+        const SizedBox(height: 6),
+        _SlaTriageAndSortBar(
+          urgentOnly: boardState.urgentOnly,
+          sortMode: boardState.sortMode,
+          urgentSlaCount: urgentSlaCount,
+          onToggleUrgent: () => context
+              .read<OrderBoardBloc>()
+              .add(const OrderBoardUrgentFilterToggled()),
+          onToggleSort: () => context.read<OrderBoardBloc>().add(
+                OrderBoardSortModeChanged(
+                  boardState.sortMode == OrderSortMode.slaUrgencyFirst
+                      ? OrderSortMode.newestFirst
+                      : OrderSortMode.slaUrgencyFirst,
+                ),
+              ),
+        ),
         const SizedBox(height: 4),
         Expanded(
           child: switch (boardState) {
@@ -582,24 +602,36 @@ class _LiveQueueTab extends StatelessWidget {
                     .read<OrderBoardBloc>()
                     .add(const OrderBoardLoadRequested()),
               ),
-            OrderBoardEmpty(:final filter, :final searchQuery) =>
+            OrderBoardEmpty(
+              :final filter,
+              :final searchQuery,
+              :final urgentOnly,
+            ) =>
               EmptyStateView(
-                title: 'No matching orders',
-                subtitle: searchQuery.isNotEmpty
-                    ? 'No orders matched "$searchQuery" under ${filter.label}.'
-                    : 'No orders currently in ${filter.label}.',
+                title: urgentOnly ? 'No urgent SLA orders' : 'No matching orders',
+                subtitle: urgentOnly
+                    ? 'All tickets under ${filter.label} are currently within safe SLA windows.'
+                    : (searchQuery.isNotEmpty
+                        ? 'No orders matched "$searchQuery" under ${filter.label}.'
+                        : 'No orders currently in ${filter.label}.'),
                 icon: Icons.receipt_long_outlined,
-                actionLabel:
-                    filter != OrderFilterTab.all || searchQuery.isNotEmpty
-                        ? 'Reset Filters'
-                        : 'Refresh Board',
+                actionLabel: filter != OrderFilterTab.all ||
+                        searchQuery.isNotEmpty ||
+                        urgentOnly
+                    ? 'Reset Filters'
+                    : 'Refresh Board',
                 onAction: () {
-                  if (filter != OrderFilterTab.all || searchQuery.isNotEmpty) {
+                  if (filter != OrderFilterTab.all ||
+                      searchQuery.isNotEmpty ||
+                      urgentOnly) {
                     searchController.clear();
                     context
                         .read<OrderSearchBloc>()
                         .add(const OrderSearchCleared());
                     context.read<OrderFilterCubit>().reset();
+                    context
+                        .read<OrderBoardBloc>()
+                        .add(const OrderBoardUrgentFilterChanged(false));
                   } else {
                     context
                         .read<OrderBoardBloc>()
@@ -739,11 +771,15 @@ class _QueueSummaryStrip extends StatelessWidget {
     required this.activeCount,
     required this.urgentSlaCount,
     required this.readyCount,
+    required this.isUrgentFilterActive,
+    required this.onUrgentTap,
   });
 
   final int activeCount;
   final int urgentSlaCount;
   final int readyCount;
+  final bool isUrgentFilterActive;
+  final VoidCallback onUrgentTap;
 
   @override
   Widget build(BuildContext context) {
@@ -769,13 +805,17 @@ class _QueueSummaryStrip extends StatelessWidget {
               label: 'Urgent SLA',
               value: '$urgentSlaCount',
               icon: Icons.warning_amber_rounded,
-              bg: urgentSlaCount > 0
+              bg: urgentSlaCount > 0 || isUrgentFilterActive
                   ? kds.statusRejectedContainer
                   : kds.cardElevated,
-              fg: urgentSlaCount > 0
+              fg: urgentSlaCount > 0 || isUrgentFilterActive
                   ? kds.onStatusRejectedContainer
                   : kds.textSecondary,
-              border: urgentSlaCount > 0 ? kds.statusRejected : kds.border,
+              border: urgentSlaCount > 0 || isUrgentFilterActive
+                  ? kds.statusRejected
+                  : kds.border,
+              isHighlighted: isUrgentFilterActive,
+              onTap: onUrgentTap,
             ),
           ),
           const SizedBox(width: 8),
@@ -803,6 +843,8 @@ class _QueueStatTile extends StatelessWidget {
     required this.bg,
     required this.fg,
     required this.border,
+    this.isHighlighted = false,
+    this.onTap,
   });
 
   final String label;
@@ -811,50 +853,62 @@ class _QueueStatTile extends StatelessWidget {
   final Color bg;
   final Color fg;
   final Color border;
+  final bool isHighlighted;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: bg,
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: border.withValues(alpha: 0.55)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: border.withValues(alpha: isHighlighted ? 1.0 : 0.55),
+              width: isHighlighted ? 1.6 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 13, color: fg),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: textTheme.labelSmall?.copyWith(
+              Row(
+                children: [
+                  Icon(icon, size: 13, color: fg),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: fg,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: tabularStyle(
+                  textTheme.titleMedium?.copyWith(
                     color: fg,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: tabularStyle(
-              textTheme.titleMedium?.copyWith(
-                color: fg,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -886,6 +940,89 @@ class _StatusFilterTabs extends StatelessWidget {
             onSelected: (_) => onSelected(tab),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SlaTriageAndSortBar extends StatelessWidget {
+  const _SlaTriageAndSortBar({
+    required this.urgentOnly,
+    required this.sortMode,
+    required this.urgentSlaCount,
+    required this.onToggleUrgent,
+    required this.onToggleSort,
+  });
+
+  final bool urgentOnly;
+  final OrderSortMode sortMode;
+  final int urgentSlaCount;
+  final VoidCallback onToggleUrgent;
+  final VoidCallback onToggleSort;
+
+  @override
+  Widget build(BuildContext context) {
+    final kds = KdsColors.of(context);
+    final isUrgencySort = sortMode == OrderSortMode.slaUrgencyFirst;
+
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          FilterChip(
+            visualDensity: VisualDensity.compact,
+            avatar: Icon(
+              Icons.warning_amber_rounded,
+              size: 16,
+              color: urgentOnly
+                  ? kds.onStatusRejectedContainer
+                  : (urgentSlaCount > 0 ? kds.statusRejected : kds.textSecondary),
+            ),
+            label: const Text('Urgent SLA'),
+            selected: urgentOnly,
+            showCheckmark: false,
+            selectedColor: kds.statusRejectedContainer,
+            side: BorderSide(
+              color: urgentOnly
+                  ? kds.statusRejected
+                  : (urgentSlaCount > 0
+                      ? kds.statusRejected.withValues(alpha: 0.45)
+                      : kds.border),
+            ),
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: urgentOnly
+                  ? kds.onStatusRejectedContainer
+                  : kds.textPrimary,
+            ),
+            onSelected: (_) => onToggleUrgent(),
+          ),
+          const SizedBox(width: 8),
+          FilterChip(
+            visualDensity: VisualDensity.compact,
+            avatar: Icon(
+              Icons.swap_vert_rounded,
+              size: 16,
+              color: isUrgencySort ? kds.brandAccent : kds.textSecondary,
+            ),
+            label: const Text('SLA Urgency First'),
+            selected: isUrgencySort,
+            showCheckmark: false,
+            selectedColor: kds.brandAccent.withValues(alpha: 0.16),
+            side: BorderSide(
+              color: isUrgencySort ? kds.brandAccent : kds.border,
+            ),
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isUrgencySort ? kds.brandAccent : kds.textPrimary,
+            ),
+            onSelected: (_) => onToggleSort(),
+          ),
+        ],
       ),
     );
   }

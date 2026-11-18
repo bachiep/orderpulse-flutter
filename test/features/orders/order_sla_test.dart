@@ -96,5 +96,78 @@ void main() {
         SlaUrgency.none,
       );
     });
+
+    test('applyBoardView filters urgent orders and sorts overdue tickets first', () {
+      final now = DateTime.utc(2026, 11, 18, 9, 20);
+      final healthy = buildOrder(
+        createdAt: now.subtract(const Duration(minutes: 2)), // 13m left
+      ).copyWith(updatedAt: now);
+      final healthyOrder = Order(
+        id: 'ORD-HEALTHY',
+        customerName: 'Healthy',
+        customerPhone: '0901',
+        items: healthy.items,
+        totalAmountVnd: 65000,
+        status: OrderStatus.newOrder,
+        createdAt: now.subtract(const Duration(minutes: 2)),
+        updatedAt: now,
+      );
+      final warningOrder = Order(
+        id: 'ORD-WARNING',
+        customerName: 'Warning',
+        customerPhone: '0901',
+        items: healthy.items,
+        totalAmountVnd: 65000,
+        status: OrderStatus.newOrder,
+        createdAt: now.subtract(const Duration(minutes: 12)), // 3m left
+        updatedAt: now,
+      );
+      final overdueOrder = Order(
+        id: 'ORD-OVERDUE',
+        customerName: 'Overdue',
+        customerPhone: '0901',
+        items: healthy.items,
+        totalAmountVnd: 65000,
+        status: OrderStatus.preparing,
+        createdAt: now.subtract(const Duration(minutes: 19)), // +4m OVERDUE
+        updatedAt: now,
+      );
+      final completedOrder = Order(
+        id: 'ORD-DONE',
+        customerName: 'Done',
+        customerPhone: '0901',
+        items: healthy.items,
+        totalAmountVnd: 65000,
+        status: OrderStatus.completed,
+        createdAt: now.subtract(const Duration(minutes: 30)),
+        updatedAt: now,
+      );
+
+      final source = [healthyOrder, completedOrder, warningOrder, overdueOrder];
+
+      final urgentOnly = OrderSlaEvaluator.applyBoardView(
+        source,
+        now: now,
+        urgentOnly: true,
+        sortMode: OrderSortMode.slaUrgencyFirst,
+      );
+      expect(urgentOnly.map((o) => o.id).toList(), [
+        'ORD-OVERDUE',
+        'ORD-WARNING',
+      ]);
+
+      final sortedAll = OrderSlaEvaluator.applyBoardView(
+        source,
+        now: now,
+        urgentOnly: false,
+        sortMode: OrderSortMode.slaUrgencyFirst,
+      );
+      expect(sortedAll.map((o) => o.id).toList(), [
+        'ORD-OVERDUE',
+        'ORD-WARNING',
+        'ORD-HEALTHY',
+        'ORD-DONE',
+      ]);
+    });
   });
 }
