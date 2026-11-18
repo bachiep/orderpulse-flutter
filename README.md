@@ -3,7 +3,7 @@
 > **One-sentence pitch:** A real-time O2O merchant Kitchen Display System (KDS) and dispatch app built with **Flutter**, **BLoC (`Bloc` / `Cubit` + `bloc_concurrency`)**, **Dio (`QueuedInterceptorsWrapper`)**, **WebSockets**, and **CustomPainter** shift analytics—featuring single-flight JWT refresh, live `AppClock`-driven prep SLA countdowns, interactive per-item prep checklists, and a standalone interactive demo mode.
 
 [![Flutter CI](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml)
-[![Release APK](https://img.shields.io/badge/APK-v1.0.0%20Release-10B981?logo=android&logoColor=white)](https://github.com/bachiep/orderpulse-flutter/releases/tag/v1.0.0)
+[![Release APK](https://img.shields.io/badge/APK-v2.0.0%20Release-10B981?logo=android&logoColor=white)](https://github.com/bachiep/orderpulse-flutter/releases/tag/v2.0.0)
 ![Flutter](https://img.shields.io/badge/Flutter-3.41.6-02569B?logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.11.4-0175C2?logo=dart&logoColor=white)
 ![State Management](https://img.shields.io/badge/State-flutter__bloc%209.1-673AB7)
@@ -95,7 +95,7 @@ sequenceDiagram
 ## 4. Quick Start (Run Locally or Test Standalone APK)
 
 ### Option A — Standalone Interactive Demo APK (No Backend Required)
-1. Download `app-release.apk` from [**GitHub Releases (`v1.0.0` latest release; `v2.0.0` release follows merge)**](https://github.com/bachiep/orderpulse-flutter/releases/tag/v1.0.0) and install on Android.
+1. Download `app-release.apk` (`50.3 MB`) from [**GitHub Releases (`v2.0.0`)**](https://github.com/bachiep/orderpulse-flutter/releases/tag/v2.0.0) and install on Android.
 2. On the login screen, tap **"Try Demo Merchant"** to enter the pre-seeded KDS Dark kitchen dispatch board immediately.
 3. Tap any order card to toggle the **Kitchen Prep Checklist**, step through **Order Lifecycle** transitions, or switch to the **Shift Insights** bottom tab.
 4. Tap the **Simulator (`science` icon)** in the top bar to test:
