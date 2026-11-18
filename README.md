@@ -2,11 +2,13 @@
 
 > **One-sentence pitch:** A real-time O2O merchant order management and kitchen dispatch app built with **Flutter**, **BLoC (`Bloc` / `Cubit` + `bloc_concurrency`)**, **Dio (`QueuedInterceptorsWrapper`)**, and **WebSockets**, featuring single-flight JWT refresh, bounded exponential-backoff stream recovery, and an interactive standalone demo mode.
 
-[![Flutter](https://img.shields.io/badge/Flutter-3.41.6-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
-[![Dart](https://img.shields.io/badge/Dart-3.11.4-0175C2?logo=dart&logoColor=white)](https://dart.dev)
-[![State Management](https://img.shields.io/badge/State-flutter__bloc%209.1-673AB7)](https://pub.dev/packages/flutter_bloc)
-[![Networking](https://img.shields.io/badge/Networking-Dio%20%2B%20WebSocket-0F766E)](https://pub.dev/packages/dio)
-[![Release APK](https://img.shields.io/badge/APK-v1.0.0%20Release-10B981)](https://github.com/bachiep/orderpulse-flutter/releases/tag/v1.0.0)
+[![Flutter CI](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml)
+[![Release APK](https://img.shields.io/badge/APK-v1.0.0%20Release-10B981?logo=android&logoColor=white)](https://github.com/bachiep/orderpulse-flutter/releases/tag/v1.0.0)
+![Flutter](https://img.shields.io/badge/Flutter-3.41.6-02569B?logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-3.11.4-0175C2?logo=dart&logoColor=white)
+![State Management](https://img.shields.io/badge/State-flutter__bloc%209.1-673AB7)
+![Networking](https://img.shields.io/badge/Networking-Dio%20%2B%20WebSocket-0F766E)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -121,6 +123,13 @@ flutter run \
 ---
 
 ## 5. Core Screens & Workflow
+
+### Mobile UI Preview
+
+| Demo Login & Live Server Config | Live Order Board (`WS` Connected) | Kitchen Detail & Dispatch Rules | 401 Queue & Stream Simulator |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/01-login-demo-entry.png" width="200" alt="Login Demo Entry" /> | <img src="docs/screenshots/02-order-board-live.png" width="200" alt="Order Board Live" /> | <img src="docs/screenshots/03-order-detail-dispatch.png" width="200" alt="Order Detail Dispatch" /> | <img src="docs/screenshots/04-simulator-sheet.png" width="200" alt="Network & Stream Simulator" /> |
+| 1-tap Demo Merchant entry + collapsible Live endpoint config | Live WebSocket banner, shift KPIs, search, and status filter chips | Itemized ticket, allergy notes, and `OrderStateMachine` guardrails | Live `3x 401 -> 1x /auth/refresh` verification right on device |
 
 1. **Login & Server Config (`LoginPage`):** 1-tap Demo Merchant entry alongside expandable Live Server endpoint settings (`API_BASE_URL`, `WS_BASE_URL`) and keyboard-safe scroll insets.
 2. **Order Board (`OrderBoardPage`):** Live connection status bar (`Live` / `Reconnecting` / `Offline`), incoming-order alert banner, shift KPI strip, debounced search, status filter chips (`All`, `New`, `Preparing`, `Ready`, `Completed`, `Rejected`), infinite scroll (`Load More`), pull-to-refresh, and all 4 explicit UI states (`Loading`, `Loaded`, `Empty` CTA, `Error` Retry).
