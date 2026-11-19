@@ -3,6 +3,7 @@
 > **One-sentence pitch:** A real-time O2O merchant Kitchen Display System (KDS) and dispatch app built with **Flutter**, **BLoC (`Bloc` / `Cubit` + `bloc_concurrency`)**, **Dio (`QueuedInterceptorsWrapper`)**, **WebSockets**, and **CustomPainter** shift analytics—featuring single-flight JWT refresh, live `AppClock`-driven prep SLA countdowns, interactive per-item prep checklists, and a standalone interactive demo mode.
 
 [![Flutter CI](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/bachiep/orderpulse-flutter/actions/workflows/ci.yml)
+[![Live Web Demo](https://img.shields.io/badge/Demo-Try%20Live%20Web%20App-0EA5E9?logo=googlechrome&logoColor=white)](https://bachiep.github.io/orderpulse-flutter/)
 [![Release APK](https://img.shields.io/badge/APK-v2.1.0%20Release-10B981?logo=android&logoColor=white)](https://github.com/bachiep/orderpulse-flutter/releases/tag/v2.1.0)
 ![Flutter](https://img.shields.io/badge/Flutter-3.41.6-02569B?logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.11.4-0175C2?logo=dart&logoColor=white)
@@ -20,6 +21,7 @@
   3. **Duplicate Dispatch Writes & Invalid Transitions:** Rapid double-taps on "Accept & Prepare" submit duplicate `PATCH` mutations, while weak UI-only checks allow skipping kitchen preparation stages or rejecting orders without a reason.
   4. **Aggressive WebSocket Reconnect Loops & Resource Leaks:** Dropping Wi-Fi/cellular causes tight retry loops or leaked `Timer` and `StreamSubscription` instances across sign-out transitions.
 - **Solution:** OrderPulse separates transport concerns behind domain repository interfaces wired via `get_it` scopes, enabling both **Live Server Mode** (`Dio` + `WebSocketChannel` + `FlutterSecureStorage`) and **Standalone Interactive Demo Mode** (an in-memory `HttpClientAdapter` + controllable stream source running through the exact same `Dio` interceptors and BLoCs), wrapped in a high-contrast KDS Dark/Light interface (`v2.1.0`).
+- **Try Live in Browser:** [Open OrderPulse Web Demo (`bachiep.github.io/orderpulse-flutter`)](https://bachiep.github.io/orderpulse-flutter/) — tap **Try Demo Merchant** to test the live KDS queue, prep checklists, 80mm thermal slip preview, and network simulator directly without installing an APK.
 
 ---
 
